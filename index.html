@@ -241,17 +241,27 @@ const FLEX_TAKES = {FLEX:["RB","WR","TE"], WRRB_FLEX:["RB","WR"], "WRRB-FLEX":["
 const BENCH = new Set(["BN","IR","TAXI"]);
 const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
 
-/* Your draft rules, encoded as named multipliers on VORP so every call can be
-   audited and tuned in one place. Deliberately modest: best player available
-   comes first, these tilt the order, they do not overturn it. */
+/* Dynasty weighting for Our BPA. Deliberately almost empty.
+   No positional tilt: VORP is already points per game under this league's
+   scoring minus a position-specific replacement level, so the format effect
+   and positional scarcity are both inside it. A pos multiplier on top would
+   count the rulebook twice.
+   No roster-need or strike-timing terms: roster context is stated in the box,
+   never scored, and the three-QB requirement is served by the amber prompt.
+   Age applies only where the market gives no signal. Fut is the market pricing
+   remaining career while controlling for current production, which beats a
+   linear curve off a birth date, so stacking both would compound one variable.
+   But Fut is null for every defender, since no dynasty IDP values are published
+   anywhere, so the age curve fills that hole and only that hole. */
 const RULES = {
   ageMid: 26,                 // neutral age, younger scores up
   agePer: 0.030,              // per year either side
-  ageMin: 0.85, ageMax: 1.28,
-  pos: {RB:1.08, LB:1.06, WR:1.00, TE:1.00, QB:0.95, DL:0.97, DB:0.97},
-  needFill: 1.05,             // fills an empty starting slot
-  qbUrgent: 1.25,             // short of three usable QBs and the supply is thinning
-  idpTiming: 0.25             // discount a defender by up to this much if he will last
+  ageMin: 0.85, ageMax: 1.28
+};
+const ageMult = a => {
+  const age = a == null ? RULES.ageMid : a;
+  return Math.min(RULES.ageMax, Math.max(RULES.ageMin,
+    1 + RULES.agePer * (RULES.ageMid - age)));
 };
 
 /* ------------------------------------------------------------------- state */
@@ -384,13 +394,16 @@ function myPicksFrom(d, tradedPicks, mySlot){
 }
 
 /* ---------------------------------------------------------------- survival */
-/* This room reaches for youth, not for position. Experience is the stronger
-   measured signal, so it leads; age is the fallback when years_exp is missing.
-   The two are not added — a rookie is already young, that would double count. */
+/* This room reaches for youth, not for position. Age leads because the age
+   bands rest on a far larger sample than the rookie experience figure, which
+   came off roughly three players. Effect size is worthless without an n, so the
+   bigger measured effect does not get to drive this. Experience is the fallback
+   only when age is missing. The two are never added: a rookie is already young,
+   so counting both would double the same signal. */
 function reachFor(exp, age){
+  if(age != null) return age <= 24 ? 7.8 : age <= 27 ? -0.7 : -2.9;
   if(exp != null) return exp <= 1 ? 17.9 : exp <= 3 ? 1.8 : -1.3;
-  if(age == null) return 0;
-  return age <= 24 ? 7.8 : age <= 27 ? -0.7 : -2.9;
+  return 0;
 }
 /* P(draft position >= pick), i.e. still on the board when that pick comes up. */
 function pAlive(adp, reach, pick){
@@ -532,13 +545,7 @@ function analyse(rows, slots, teams){
      neutral on purpose, so it excludes the personal terms (need, QB check,
      strike timing) and stays a property of the board rather than your roster.
      Compare it against market ADP to see where the room disagrees with you. */
-  const neutral = r => {
-    const f = r.f == null ? 1 : r.f;
-    const age = r.a == null ? RULES.ageMid : r.a;
-    const am = Math.min(RULES.ageMax, Math.max(RULES.ageMin,
-      1 + RULES.agePer * (RULES.ageMid - age)));
-    return Math.max(r.v, 0) * f * am * (RULES.pos[r.p] || 1);
-  };
+  const neutral = r => Math.max(r.v, 0) * (r.f != null ? r.f : ageMult(r.a));
   rows.slice().sort((a,b) => neutral(b) - neutral(a)).forEach((r,i) => r.iadp = i + 1);
 
   const posMed = b => {
@@ -815,34 +822,15 @@ function render(){
 /* VORP scaled by the rules above. Returns the parts as well as the total so the
    box can show its working. Only meaningful on positive VORP: multiplying a
    below-replacement player by a bonus would make him look better, not worse. */
-function fit(r, ctx){
+function fit(r){
   const parts = [];
   let s = Math.max(r.v, 0);
-
-  const f = r.f == null ? 1 : r.f;
-  if(f !== 1){ s *= f; parts.push(["Fut", f]); }
-
-  const age = r.a == null ? RULES.ageMid : r.a;
-  const am = Math.min(RULES.ageMax, Math.max(RULES.ageMin,
-    1 + RULES.agePer * (RULES.ageMid - age)));
-  if(am !== 1){ s *= am; parts.push(["Age", +am.toFixed(2)]); }
-
-  const pm = RULES.pos[r.p] || 1;
-  if(pm !== 1){ s *= pm; parts.push(["Pos", pm]); }
-
-  if(ctx.fillsSlot(r)){ s *= RULES.needFill; parts.push(["Need", RULES.needFill]); }
-
-  /* Patient on QB, but three usable arms is a standing requirement. This only
-     fires once the supply of startable quarterbacks thins against what you
-     still owe yourself, so it times the run rather than reaching early. */
-  if(r.p === "QB" && ctx.qbUrgent){ s *= RULES.qbUrgent; parts.push(["QB check", RULES.qbUrgent]); }
-
-  /* The room will not touch defence until too late, so a defender who is very
-     likely to survive to your next pick is worth less right now than the same
-     player who is about to go. This times the strike, it does not skip him. */
-  if(DEF.includes(r.p) && r.s1 != null){
-    const tm = 1 - RULES.idpTiming * r.s1;
-    s *= tm; parts.push(["Timing", +tm.toFixed(2)]);
+  if(r.f != null){
+    s *= r.f; parts.push(["Fut", r.f]);
+  }else{
+    /* No published dynasty value, so nothing has priced his age. */
+    const am = ageMult(r.a);
+    if(am !== 1){ s *= am; parts.push(["Age", +am.toFixed(2)]); }
   }
   return {score: s, parts};
 }
@@ -863,7 +851,7 @@ function recommend(){
     fillsSlot: r => rosterFill(myRoster.concat([r]), slots)
                       .reduce((a,f) => a + f.got, 0) > nowFilled
   };
-  const scored = new Map(avail.map(r => [r.id, fit(r, ctx)]));
+  const scored = new Map(avail.map(r => [r.id, fit(r)]));
   const dyn = r => scored.get(r.id).score;
 
   const byV = avail.slice().sort((a,b) => b.v - a.v);
@@ -913,21 +901,26 @@ function renderRecs(){
     num("Score", fmt(rec.dyn(o),2)) + num("VORP", fmt(o.v,2)) +
     num("Fut", o.f == null ? "1.00" : o.f.toFixed(2)),
     `<em>VORP ${rec.parts(o).length ? "× " + chain(o) : "unadjusted"}.</em> ` +
-    `The rules edge is already inside Ours, so it is not applied again. ` +
+    `Nothing else is applied: the scoring distortion and positional scarcity are ` +
+    `both already inside VORP, and roster need is stated below, never scored. ` +
     (same ? `Same call as raw BPA.` +
             (oAlt ? ` Next: <em>${esc(oAlt.n)}</em> (${fmt(rec.dyn(oAlt),2)}).` : "")
           : `Ahead of <em>${esc(b.n)}</em> (${fmt(rec.dyn(b),2)}).`) +
     /* The market publishes no dynasty values for defenders, so every one of them
        carries a neutral 1.00 and can only ever lose ground on Fut. Say so when
        it actually decided the call. */
-    (!same && b.f == null && DEF.includes(b.p)
-      ? `<br><em>${esc(b.n)}</em> has no published dynasty value, the market rates no ` +
-        `defenders, so he sits at a neutral Fut of 1.00 and cannot gain there.` : "") +
+    (!same && b.f == null
+      ? `<br><em>${esc(b.n)}</em> has no published dynasty value` +
+        (DEF.includes(b.p) ? `, the market rates no defenders` : ``) +
+        `, so he is scored on the age curve at ${ageMult(b.a).toFixed(2)} instead of Fut. ` +
+        `That is a weaker signal than a traded market price, so treat the gap between ` +
+        `these two as softer than it looks.` : "") +
     (rec.ctx.qbShort
       ? `<br>Short <em>${rec.ctx.qbShort} usable QB${rec.ctx.qbShort > 1 ? "s" : ""}</em>, ` +
         `${rec.ctx.qbLeft} left at or above replacement. ` +
-        (rec.ctx.qbUrgent ? `<em>Supply is thinning, QB boost is live.</em>`
-                          : `Supply is deep, staying patient.`) : "") +
+        (rec.ctx.qbUrgent ? `<em>Supply is thinning.</em>`
+                          : `Supply is deep.`) +
+        ` Stated, not scored: the board is not tilted toward quarterbacks.` : "") +
     `<br>${fillsSlot(o) ? `Fills an open ${o.p} or flex slot.`
                         : `Your ${o.p} slots are covered, this is pure best available.`}`);
 

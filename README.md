@@ -59,18 +59,17 @@ Pulled live from `/v1/league/{id}` as `scoring_settings`, never transcribed. The
 At-a-glance calls on the undrafted pool. They ignore the table's filters and sorting on purpose — they always answer for the whole board.
 
 1. **Best player available** — the top of the board on VORP alone. No dynasty weighting, no roster need. If you could pick anyone, this is him. Runner-up shown beneath.
-2. **Our BPA** — VORP scaled by your draft rules, each a named multiplier shown in the box so the call can be audited:
+2. **Our BPA** — `VORP × Fut`, and nothing else.
 
-   | Term | Rule it encodes | Effect |
+   VORP is already points per game under this league's scoring minus a **position-specific** replacement level, so both the scoring distortion and positional scarcity are inside it. Any positional tilt on top would count the rulebook twice, so there is none. Roster need and the three-QB requirement are **stated in the box, never scored**, which is what the standing prompt is for.
+
+   | Term | Applies to | Why |
    |---|---|---|
-   | `Fut` | Dynasty only, no redraft weighting | market's view of remaining runway |
-   | `Age` | Aiming young, happy to lose 2026 | 3% per year either side of 26, clamped 0.85 to 1.28 |
-   | `Pos` | RBs scarce, LB is the best defensive position, patient on QB | RB 1.08, LB 1.06, QB 0.95, DL/DB 0.97 |
-   | `Need` | Positional need against the 19 starting slots | 1.05 if he fills an empty one |
-   | `QB check` | Three usable QBs in superflex | 1.25, but only once startable QBs left drop below 3x what you still need |
-   | `Timing` | Leaguemates ignore defence until too late | discounts a defender by up to 25% when he is likely to survive to your next pick |
+   | `Fut` | anyone with a FantasyCalc value | The market pricing remaining career while controlling for current production. Strictly better than a curve off a birth date |
+   | `Age` | **only** players with no `Fut` | 3% per year off 26, clamped 0.85 to 1.28. Fut and Age are never stacked: that would compound one variable. But no dynasty IDP values are published anywhere, so without this every defender would carry zero dynasty weighting in a startup aimed at youth |
 
-   Tune them all in the `RULES` object at the top of the script. The rules edge is deliberately **not** applied here: it is already inside `Ours`, and therefore inside VORP, so multiplying again would count the rulebook twice. Multipliers apply to positive VORP only, since scaling a below-replacement player by a bonus would make him look better rather than worse.
+   Tune in the `RULES` object at the top of the script. Multipliers apply to positive VORP only, since scaling a below-replacement player by a bonus would make him look better rather than worse.
+
 3. **Alternate paths** — the best player left at each of the seven positions, with VORP and the chance he lasts to your next pick. This is the "if I want to go RB here, who is it" answer.
 
 One honest caveat, stated in the box whenever it decides the call: **the market publishes no dynasty values for defenders**, so every IDP carries a neutral `Fut` of 1.00 and can only ever lose ground under the weighting. When Our BPA overtakes a defender, that is partly the weighting and partly a missing number.
