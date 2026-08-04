@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDP Life helper</title>
+<style>
+:root{
+  --bg:#faf9f7; --surf:#fff; --surf2:#f4f2ee; --line:#e5e2db; --line2:#d3cfc5;
+  --ink:#1a1a18; --dim:#6b6862; --faint:#9a968d;
+  --up:#1d8a63; --upbg:#e3f3ec; --dn:#b8402f; --dnbg:#fbe9e6;
+  --hot:#b5761a; --hotbg:#fbf1de; --hotline:#e8d09a;
+  --qb:#2a6fb5; --rb:#b8593a; --wr:#1d8a63; --te:#6a5cb8; --idp:#a8781f;
+  --qbb:#e8f0f9; --rbb:#faece7; --wrb:#e3f3ec; --teb:#eeecfa; --idpb:#faf1de;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14161a; --surf:#1c1f24; --surf2:#22262c; --line:#2c3138; --line2:#3d434b;
+  --ink:#e9e7e2; --dim:#9a978f; --faint:#6e6b64;
+  --up:#4cc292; --upbg:#16342a; --dn:#e07a63; --dnbg:#361e1a;
+  --hot:#e0a33b; --hotbg:#332918; --hotline:#5c4826;
+  --qb:#6ba6e0; --rb:#e08a68; --wr:#4cc292; --te:#9b8ee8; --idp:#dbab55;
+  --qbb:#1b2836; --rbb:#33221b; --wrb:#16342a; --teb:#252042; --idpb:#332918;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}
+
+header{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0 10px}
+.top{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
+.sub{font-size:12px;color:var(--dim);margin-top:2px}
+.live{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+.st{display:flex;flex-direction:column;gap:1px}
+.st .k{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.st .v{font-size:19px;font-weight:600;line-height:1.15}
+.st .v.hot{color:var(--hot)}
+.st .v.sm{font-size:13px;font-weight:400}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
+.dot.off{background:var(--faint)}
+.dot.warn{background:var(--hot)}
+
+button{font:inherit;font-size:12px;background:transparent;color:var(--dim);
+  border:1px solid var(--line2);border-radius:6px;padding:4px 11px;cursor:pointer}
+button:hover:not(:disabled){color:var(--ink)}
+button:disabled{opacity:.5;cursor:default}
+button[aria-pressed=true]{background:var(--surf2);color:var(--ink);border-color:var(--faint)}
+button.go{border-color:var(--faint);color:var(--ink);font-weight:500;padding:5px 14px}
+button.go:hover:not(:disabled){background:var(--surf2)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-offset:1px}
+.lnk{background:none;border:none;padding:0;font-size:11px;color:var(--faint);text-decoration:underline;cursor:pointer}
+.lnk:hover{color:var(--dim)}
+
+.banner{background:var(--hotbg);border:1px solid var(--hotline);border-radius:8px;
+  padding:10px 13px;margin:14px 0 0;font-size:13px;color:var(--ink);display:flex;gap:9px;align-items:flex-start}
+.banner b{font-weight:600}
+.banner .ic{color:var(--hot);font-weight:700;flex:none}
+.strip{background:var(--surf2);border-radius:8px;padding:11px 13px;margin:12px 0 0}
+.strip h3{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.slots{display:flex;flex-wrap:wrap;gap:5px}
+.slot{font-size:12px;padding:2px 8px;border-radius:5px;background:var(--surf);border:1px solid var(--line);white-space:nowrap}
+.slot.full{color:var(--up);border-color:transparent;background:var(--upbg)}
+.slot.part{color:var(--hot);border-color:transparent;background:var(--hotbg)}
+.mine{font-size:12px;color:var(--dim);margin-top:8px;line-height:1.7}
+.mine .pk{color:var(--faint);font-size:11px}
+
+.recs{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:10px;margin:14px 0 0}
+.rec{background:var(--surf2);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column}
+.rec h4{margin:0 0 7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);font-weight:600}
+.rec .who{font-size:19px;font-weight:600;line-height:1.2}
+.rec .meta{font-size:12px;color:var(--dim);margin-top:3px}
+.rec .nums{display:flex;gap:16px;margin-top:10px}
+.rec .num .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+.rec .num .v{font-size:17px;font-weight:600;line-height:1.2}
+.rec .why{font-size:11px;color:var(--dim);margin-top:auto;padding-top:9px;line-height:1.5}
+.rec .why em{font-style:normal;color:var(--ink)}
+.paths{display:flex;flex-direction:column;gap:3px}
+.path{display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.6}
+.path .nm2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.path .vv{font-weight:600;min-width:38px;text-align:right}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin:14px 0 4px}
+.card{background:var(--surf2);border-radius:8px;padding:8px 12px}
+.card .k{font-size:11px;color:var(--dim)}
+.card .v{font-size:19px;font-weight:600;line-height:1.25}
+
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:14px 0 4px}
+.bar .lbl{font-size:12px;color:var(--dim);margin-right:2px}
+input[type=search]{font:inherit;font-size:13px;background:var(--surf);color:var(--ink);
+  border:1px solid var(--line2);border-radius:6px;padding:5px 10px;min-width:140px}
+label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer}
+.note{font-size:12px;color:var(--dim);margin:10px 0 12px;max-width:96ch}
+.note b{color:var(--ink);font-weight:600}
+
+/* No overflow on .scroll at desktop widths: any non-visible overflow would make
+   it the sticky containing block and detach the header row from the viewport.
+   Below the breakpoint it becomes a scroll container so the table, rather than
+   the whole page, is what slides sideways — sticky is given up there. */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:66px;background:var(--bg);z-index:20;font-weight:600;font-size:11px;
+  letter-spacing:.03em;color:var(--dim);text-align:right;padding:7px 7px;
+  border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap}
+th.l{text-align:left} th:hover{color:var(--ink)} th[data-on]{color:var(--ink)}
+th[data-on]::after{content:"";font-size:9px;margin-left:3px}
+td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+td.l{text-align:left}
+tbody tr:hover{background:var(--surf)}
+tr.gone{opacity:.38}
+tr.own{background:var(--upbg)}
+tr.own:hover{background:var(--upbg)}
+.nm{font-weight:500}
+.gl{font-size:10px;color:var(--faint);margin-left:5px;letter-spacing:.05em;text-transform:uppercase}
+.gl.you{color:var(--up);font-weight:600}
+.thin{color:var(--hot);font-weight:700;cursor:help;margin-left:3px}
+.rk{color:var(--faint);font-size:12px}
+.p{display:inline-block;min-width:19px;text-align:center;font-size:11px;font-weight:600;
+  padding:1px 5px;border-radius:4px}
+.prk{color:var(--faint);font-size:11px;margin-left:4px}
+.pill{display:inline-block;min-width:30px;text-align:center;font-size:12px;font-weight:500;
+  padding:1px 6px;border-radius:4px}
+.up{color:var(--up)} .dn{color:var(--dn)} .fl{color:var(--faint)}
+.b{font-weight:600}
+.msg{background:var(--surf2);border:1px solid var(--line2);border-radius:8px;
+  padding:22px;text-align:center;color:var(--dim);margin:22px 0}
+.msg.bad{border-color:var(--dn);color:var(--dn)}
+.warn{background:var(--dnbg);border:1px solid var(--dn);color:var(--dn);border-radius:8px;
+  padding:9px 13px;font-size:12px;margin:12px 0 0}
+details{margin-top:20px;font-size:12px;color:var(--dim)}
+summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0}
+summary:hover{color:var(--ink)}
+details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:100ch}
+footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid var(--line);padding-top:12px;line-height:1.8}
+@media(max-width:900px){
+  .h2{display:none}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th{position:static}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="top">
+  <div><h1>IDP Life helper</h1><div class="sub" id="lg">loading league…</div></div>
+  <div class="live">
+    <div class="st"><span class="k">Picks</span><span class="v" id="v-made">—</span></div>
+    <div class="st"><span class="k">On clock</span><span class="v sm" id="v-clock">—</span></div>
+    <div class="st"><span class="k">Your pick</span><span class="v" id="v-next">—</span></div>
+    <div class="st"><span class="k">Away</span><span class="v" id="v-away">—</span></div>
+    <div class="st"><span class="k">Feed</span><span class="v sm"><span class="dot off" id="v-dot"></span><span id="v-feed">…</span></span></div>
+    <div class="st">
+      <span class="k">Data</span>
+      <span><button class="go" id="refresh">Refresh</button></span>
+    </div>
+  </div>
+</div></div></header>
+
+<div class="wrap">
+  <div id="boot" class="msg">Fetching league, projections and 2025 actuals from Sleeper…</div>
+  <div id="stalewarn"></div>
+
+  <div id="app" hidden>
+    <div class="recs" id="recs"></div>
+    <div id="qbwarn"></div>
+    <div class="strip" id="rosterstrip"></div>
+    <div class="cards" id="cards"></div>
+
+    <div class="bar">
+      <span class="lbl">Position</span>
+      <button data-f="ALL" aria-pressed="true">All</button>
+      <button data-f="QB">QB</button><button data-f="RB">RB</button>
+      <button data-f="WR">WR</button><button data-f="TE">TE</button>
+      <button data-f="OFF">Offence</button>
+      <button data-f="DL">DL</button><button data-f="LB">LB</button>
+      <button data-f="DB">DB</button><button data-f="IDP">Defence</button>
+      <input type="search" id="q" placeholder="Search" aria-label="Search player">
+      <label class="c"><input type="checkbox" id="hide" checked> Hide drafted</label>
+      <label class="c"><input type="checkbox" id="yng"> Age &le;26</label>
+    </div>
+
+    <p class="note" id="note"></p>
+
+    <div class="scroll">
+      <table><thead><tr id="hr"></tr></thead><tbody id="tb"></tbody></table>
+    </div>
+
+    <details id="method">
+      <summary>Method, and where the data is thin</summary>
+      <ul id="gaps"></ul>
+    </details>
+    <footer id="ft"></footer>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ config */
+const LEAGUE = "1352969236586201088";
+const MY_SLOT = 11;
+const SEASON = 2026, PRIOR = 2025;
+const POLL_MS = 45000;
+const SURV_SD = 8;                 // measured spread of this room vs ADP
+const PLAYER_CACHE_KEY = "idp_players_v3";
+const PLAYER_CACHE_MS = 864e5;     // 24h
+
+/* Standard full PPR, the comparison rulebook. Same stat line, different table. */
+const PPR = {pass_yd:.04, pass_td:4, pass_int:-2, pass_2pt:2, rush_yd:.1, rush_td:6,
+             rush_2pt:2, rec:1, rec_yd:.1, rec_td:6, rec_2pt:2, fum_lost:-2};
+
+const OFF = ["QB","RB","WR","TE"], DEF = ["DL","LB","DB"];
+const PC = {QB:["var(--qb)","var(--qbb)"], RB:["var(--rb)","var(--rbb)"],
+            WR:["var(--wr)","var(--wrb)"], TE:["var(--te)","var(--teb)"],
+            DL:["var(--idp)","var(--idpb)"], LB:["var(--idp)","var(--idpb)"],
+            DB:["var(--idp)","var(--idpb)"]};
+
+/* Which positions each flex slot can take. */
+const FLEX_TAKES = {FLEX:["RB","WR","TE"], WRRB_FLEX:["RB","WR"], "WRRB-FLEX":["RB","WR"],
+                    REC_FLEX:["WR","TE"], SUPER_FLEX:["QB","RB","WR","TE"],
+                    IDP_FLEX:["DL","LB","DB"]};
+const BENCH = new Set(["BN","IR","TAXI"]);
+const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
+
+/* ------------------------------------------------------------------- state */
+let ROWS = [], META = {}, SC = null, PLAYERS = {};
+let draft = {id:null, teams:12, rounds:45, reversal:3, slots:{}, order:{}, names:{}};
+let MY_PICKS = [], MY_ROSTER_ID = null;
+let taken = new Map();             // player_id -> {slot, pick_no}
+let made = 0, myRoster = [];
+let pos = "ALL", sortKey = "v", sortDir = -1;
+let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
+
+const $ = i => document.getElementById(i);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (v,d=1) => v == null ? "—" : (+v).toFixed(d);
+
+async function jget(url, opts){
+  const r = await fetch(url, Object.assign({cache:"no-store"}, opts||{}));
+  if(!r.ok) throw new Error(url.split("/").slice(-1)[0].split("?")[0] + " HTTP " + r.status);
+  return r.json();
+}
+
+/* ------------------------------------------------------------------- maths */
+function median(xs){
+  if(!xs.length) return null;
+  const a = xs.slice().sort((x,y) => x-y), m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
+}
+
+/* Normal CDF, Abramowitz & Stegun 26.2.17. Good to ~7.5e-8. */
+function normCdf(z){
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
+  const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 +
+            t * (-1.821255978 + t * 1.330274429))));
+  return z > 0 ? 1 - p : p;
+}
+
+/* ----------------------------------------------------------------- scoring */
+/* Apply a scoring table to a stat line. Two keys need special handling:
+   pass_inc has no stat field, and bonus_rec_te only applies to tight ends. */
+function score(s, position, table){
+  let t = 0;
+  for(const k in table){
+    const m = table[k];
+    if(!m) continue;
+    if(k === "pass_inc"){ t += m * Math.max(0, (s.pass_att||0) - (s.pass_cmp||0)); continue; }
+    if(k === "bonus_rec_te"){ if(position === "TE") t += m * (s.rec||0); continue; }
+    if(s[k]) t += m * s[k];
+  }
+  return t;
+}
+
+/* --------------------------------------------------------- lineup / slots */
+/* Read the real lineup out of roster_positions rather than assuming it. */
+function slotCounts(rosterPositions){
+  const c = {};
+  for(const raw of (rosterPositions||[])){
+    const p = String(raw).toUpperCase();
+    if(BENCH.has(p)) continue;
+    c[p] = (c[p]||0) + 1;
+  }
+  return c;
+}
+
+/* Greedy flex fill on current projections. Never hardcoded: fill the dedicated
+   slots, then hand each flex slot to whichever eligible position has the best
+   player left. Replacement is the next man after the ones consumed. */
+function replacement(rows, slots, teams){
+  const pool = {}, idx = {};
+  for(const b of OFF.concat(DEF)){
+    pool[b] = rows.filter(r => r.p === b).sort((x,y) => y.o - x.o);
+    idx[b] = (slots[b]||0) * teams;
+  }
+  const nextVal = b => idx[b] < pool[b].length ? pool[b][idx[b]].o : -Infinity;
+  for(const [slot, takes] of Object.entries(FLEX_TAKES)){
+    const n = (slots[slot]||0) * teams;
+    for(let i = 0; i < n; i++){
+      let best = null;
+      for(const b of takes) if(best === null || nextVal(b) > nextVal(best)) best = b;
+      if(best !== null && nextVal(best) > -Infinity) idx[best]++;
+    }
+  }
+  const R = {}, starts = {}, dry = [];
+  for(const b of OFF.concat(DEF)){
+    starts[b] = idx[b];
+    R[b] = pool[b].length ? +pool[b][Math.min(idx[b], pool[b].length - 1)].o.toFixed(1) : 0;
+    /* Every startable player got consumed, so this is a floor rather than a real
+       replacement level and VORP at that position reads high. Cannot happen on
+       live data, but a silent wrong number here would poison the whole board. */
+    if(idx[b] >= pool[b].length) dry.push(b);
+  }
+  return [R, starts, dry];
+}
+
+/* --------------------------------------------------------- draft geometry */
+/* Round 1 runs forward. Snake flips each round, and the reversal round repeats
+   the prior round's direction, flipping every round from there on. */
+function isForward(round, reversal){
+  return (round % 2 === 1) !== (reversal > 0 && round >= reversal);
+}
+function pickNo(round, slot, teams, reversal){
+  return (round - 1) * teams + (isForward(round, reversal) ? slot : teams - slot + 1);
+}
+function slotForPick(n, teams, reversal){
+  const round = Math.floor((n - 1) / teams) + 1, i = (n - 1) % teams + 1;
+  return isForward(round, reversal) ? i : teams - i + 1;
+}
+
+/* Which picks are actually mine, honouring trades. Falls back to the raw snake
+   formula when the draft endpoint is unavailable. */
+function myPicksFrom(d, tradedPicks, mySlot){
+  const slotOf = {}, rosterIds = [];
+  for(const [s, rid] of Object.entries(d.slots||{})){ slotOf[rid] = +s; rosterIds.push(rid); }
+  const myRid = (d.slots||{})[String(mySlot)];
+  if(myRid == null || !rosterIds.length){
+    const out = [];
+    for(let r = 1; r <= d.rounds; r++) out.push(pickNo(r, mySlot, d.teams, d.reversal));
+    return [out, null];
+  }
+  const moved = new Map();
+  for(const t of (tradedPicks||[])) moved.set(t.round + ":" + t.roster_id, t.owner_id);
+  const out = [];
+  for(let r = 1; r <= d.rounds; r++)
+    for(const rid of rosterIds){
+      const owner = moved.has(r + ":" + rid) ? moved.get(r + ":" + rid) : rid;
+      if(owner === myRid && slotOf[rid]) out.push(pickNo(r, slotOf[rid], d.teams, d.reversal));
+    }
+  out.sort((a,b) => a - b);
+  return [out, myRid];
+}
+
+/* ---------------------------------------------------------------- survival */
+/* This room reaches for youth, not for position. Experience is the stronger
+   measured signal, so it leads; age is the fallback when years_exp is missing.
+   The two are not added — a rookie is already young, that would double count. */
+function reachFor(exp, age){
+  if(exp != null) return exp <= 1 ? 17.9 : exp <= 3 ? 1.8 : -1.3;
+  if(age == null) return 0;
+  return age <= 24 ? 7.8 : age <= 27 ? -0.7 : -2.9;
+}
+/* P(draft position >= pick), i.e. still on the board when that pick comes up. */
+function pAlive(adp, reach, pick){
+  return 1 - normCdf((pick - (adp - reach)) / SURV_SD);
+}
+/* Conditioned on the player still being available right now. */
+function survival(adp, reach, pick, current){
+  if(adp == null || pick == null) return null;
+  const now = pAlive(adp, reach, current);
+  if(!(now > 1e-6)) return 1;      // already slid well past ADP and still here
+  return Math.max(0, Math.min(1, pAlive(adp, reach, pick) / now));
+}
+
+/* --------------------------------------------------------------- my roster */
+/* Fill my own players into the 19 starting slots, best first, dedicated before
+   flex, so the holes that show are real holes. */
+function rosterFill(mine, slots){
+  const left = {};
+  for(const b of OFF.concat(DEF)) left[b] = mine.filter(r => r.p === b).sort((x,y) => y.o - x.o);
+  const out = [];
+  for(const b of OFF.concat(DEF)){
+    const n = slots[b] || 0;
+    if(n) out.push({slot:b, need:n, got:Math.min(n, left[b].length)});
+    left[b] = left[b].slice(slots[b] || 0);
+  }
+  for(const [slot, takes] of Object.entries(FLEX_TAKES)){
+    const n = slots[slot] || 0;
+    if(!n) continue;
+    let got = 0;
+    for(let i = 0; i < n; i++){
+      let best = null;
+      for(const b of takes) if(left[b].length && (best === null || left[b][0].o > left[best][0].o)) best = b;
+      if(best === null) break;
+      left[best].shift(); got++;
+    }
+    out.push({slot, need:n, got});
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ build */
+/* Score every player, twice, on the identical stat line. */
+function buildRows(P, proj, prior, scoring, future){
+  const out = [];
+  for(const id in proj){
+    const meta = P[id]; if(!meta) continue;
+    const pj = proj[id];
+    const [nm, b, tm, age, exp] = meta;
+    const gp = pj.gp || 0; if(gp < 12) continue;
+
+    const s = Object.assign({}, pj);
+    const ac = prior[id] || {}, ag = ac.gp || 0;
+
+    /* Backfill what Sleeper omits, from the player's own 2025 rate. Never a
+       league average — a missing field is a gap in the payload, not a player
+       who does not do that thing. */
+    if(ag >= 6){
+      if(OFF.includes(b)){
+        for(const k of ["pass_att","pass_cmp","pass_td","pass_yd","pass_int","rush_td",
+                        "pass_cmp_40p","rush_40p","rec_40p"])
+          if(!(k in s) && k in ac) s[k] = ac[k] / ag * gp;
+      }else{
+        /* Sleeper never projects pass defended, TFL or QB hits. Pass defended is
+           3 points and a large share of DB scoring, so this matters. Scale them
+           off the player's own 2025 per-tackle rate. */
+        const base = Math.max(1, (ac.idp_tkl_solo||0) + (ac.idp_tkl_ast||0));
+        const pt = Math.max(1, (pj.idp_tkl_solo||0) + (pj.idp_tkl_ast||0));
+        for(const k of ["idp_pass_def","idp_tkl_loss","idp_qb_hit","idp_int_ret_yd","idp_fum_ret_yd"])
+          s[k] = (ac[k]||0) / base * pt;
+        for(const k of ["st_tkl_solo","st_ff","st_fum_rec"]) s[k] = (ac[k]||0) / ag * gp;
+      }
+      /* Return yards are never projected for anyone. Prorate from 2025 and let
+         the scoring table price them, so the league's own rate is used once. */
+      for(const k of ["kr_yd","pr_yd"]) s[k] = (ac[k]||0) / ag * gp;
+    }
+
+    const o = score(s, b, scoring) / gp;
+    if(o < 4) continue;
+    const isOff = OFF.includes(b);
+
+    out.push({
+      id, n:nm, p:b, t:tm || "FA", a:age, exp,
+      adp: pickAdp(pj, isOff),
+      o: +o.toFixed(1),
+      s: isOff ? +(score(s, b, PPR) / gp).toFixed(1) : null,
+      a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
+      g25: ag,
+      thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
+      f: future[id] != null ? future[id] : null,
+      es: null,
+      reach: reachFor(exp, age)
+    });
+  }
+  return out;
+}
+
+/* Sleeper publishes no dynasty superflex ADP for defenders, so they fall back
+   to adp_idp. Without it the whole defensive board would have no survival read. */
+function pickAdp(pj, isOff){
+  const a = isOff ? pj.adp_dynasty_2qb : (pj.adp_idp != null ? pj.adp_idp : pj.adp_dynasty_2qb);
+  return (a != null && a > 0 && a < 999) ? +a.toFixed(1) : null;
+}
+
+/* VORP, the rules edge, and both rank movements. */
+function analyse(rows, slots, teams){
+  const [R, starts, dry] = replacement(rows, slots, teams);
+  rows.forEach(r => r.v = +(r.o - R[r.p]).toFixed(2));
+
+  /* The league inflates everyone by about 60%, so the raw boost is meaningless
+     in isolation. Only the deviation from the median says who the rulebook
+     actually favours. */
+  const med = median(rows.filter(r => r.s > 3).map(r => r.o / r.s));
+  rows.forEach(r => {
+    if(r.s > 3 && med){
+      r.b = Math.round((r.o / r.s - 1) * 100);
+      r.rel = Math.round(((r.o / r.s) / med - 1) * 100);
+    }else{ r.b = null; r.rel = null; }
+  });
+
+  /* Within position: the honest read of whether he got better than his peers.
+     Overall: the board reshuffling, which is where the tight end story lives. */
+  for(const b of OFF.concat(DEF))
+    for(const [fld, key] of [["s","pP"], ["o","pO"]])
+      rows.filter(r => r.p === b && r[fld] != null)
+          .sort((x,y) => y[fld] - x[fld]).forEach((r,i) => r[key] = i + 1);
+  rows.filter(r => r.s != null).sort((a,b) => b.s - a.s).forEach((r,i) => r.rP = i + 1);
+  rows.filter(r => r.s != null).sort((a,b) => b.o - a.o).forEach((r,i) => r.rO = i + 1);
+  rows.forEach(r => {
+    r.pm = (r.pP && r.pO) ? r.pP - r.pO : null;
+    r.om = (r.rP && r.rO) ? r.rP - r.rO : null;
+  });
+
+  /* Board rank: overall and positional, by VORP. This is how picks get reported. */
+  rows.sort((a,b) => b.v - a.v).forEach((r,i) => r.rk = i + 1);
+  for(const b of OFF.concat(DEF))
+    rows.filter(r => r.p === b).sort((x,y) => y.v - x.v).forEach((r,i) => r.prk = i + 1);
+
+  const posMed = b => {
+    const m = median(rows.filter(r => r.p === b && r.b != null).map(r => r.b));
+    return m == null ? null : Math.round(m);
+  };
+  return {R, starts, dry, med: med ? +((med - 1) * 100).toFixed(1) : null,
+          te:posMed("TE"), qb:posMed("QB"), rb:posMed("RB"), wr:posMed("WR")};
+}
+
+/* ------------------------------------------------------------- data access */
+async function loadPlayers(hard){
+  if(!hard){
+    try{
+      const c = JSON.parse(localStorage.getItem(PLAYER_CACHE_KEY) || "null");
+      if(c && Date.now() - c.t < PLAYER_CACHE_MS) return c.d;
+    }catch(e){ /* corrupt cache, refetch */ }
+  }
+  const raw = await jget("https://api.sleeper.app/v1/players/nfl");
+  const d = {};
+  for(const id in raw){
+    const p = raw[id], fp = p.fantasy_positions || [];
+    const b = OFF.includes(p.position) ? p.position
+            : fp.includes("DL") ? "DL" : fp.includes("LB") ? "LB" : fp.includes("DB") ? "DB" : null;
+    if(!b) continue;
+    d[id] = [((p.first_name||"") + " " + (p.last_name||"")).trim(), b, p.team || "",
+             p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null];
+  }
+  try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({t:Date.now(), d})); }catch(e){}
+  return d;
+}
+
+/* The market's own view of how much value lies ahead, controlling for current
+   production rather than just penalising age. */
+function futureMultipliers(fcalc){
+  const f = {};
+  for(const e of (fcalc||[])){
+    const id = e.player && e.player.sleeperId, rd = e.redraftValue || 0;
+    if(!id) continue;
+    f[id] = rd > 40 ? +Math.sqrt(Math.max(.6, Math.min(2.4, e.value / rd))).toFixed(2) : 1.14;
+  }
+  return f;
+}
+
+/* Optional second opinion. ESPN needs a custom header, which triggers a CORS
+   preflight they may not answer — so this runs after the board is already up
+   and simply does not appear when it fails. */
+const ESPN_MAP = {"0":"pass_att","1":"pass_cmp","3":"pass_yd","4":"pass_td","20":"pass_int",
+                  "23":"rush_att","24":"rush_yd","25":"rush_td","42":"rec_yd","43":"rec_td",
+                  "53":"rec","72":"fum_lost"};
+const norm = n => String(n).toLowerCase().replace(/[.'-]/g,"")
+  .replace(/\s+(jr|sr|ii|iii|iv|v)$/,"").replace(/[^a-z0-9]/g,"");
+
+async function loadEspn(){
+  const hdr = {"x-fantasy-filter": JSON.stringify({players:{limit:1200, offset:0,
+    sortPercOwned:{sortAsc:false, sortPriority:1}}})};
+  const raw = await jget(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}` +
+                         `/segments/0/leaguedefaults/3?view=kona_player_info`, {headers:hdr});
+  const by = {};
+  for(const e of (raw.players || [])){
+    const pl = e.player; if(!pl) continue;
+    for(const st of (pl.stats || [])){
+      if(st.seasonId === SEASON && st.statSourceId === 1 && st.statSplitTypeId === 0 && st.stats){
+        const line = {};
+        for(const k in st.stats) if(ESPN_MAP[k]) line[ESPN_MAP[k]] = st.stats[k] / 17;
+        by[norm(pl.fullName)] = line;
+        break;
+      }
+    }
+  }
+  return by;
+}
+
+/* ESPN omits first downs, which this league pays for. Estimate from the
+   player's own 2025 rate where the sample supports it. */
+function firstDowns(line, ac, position){
+  const g = ac.gp || 0;
+  let recRate, rushRate;
+  if(g >= 8 && ((ac.rec||0) + (ac.rush_att||0)) > 20){
+    recRate = (ac.rec_fd||0) / Math.max(ac.rec||1, 1);
+    rushRate = (ac.rush_fd||0) / Math.max(ac.rush_att||1, 1);
+  }else{
+    [recRate, rushRate] = position === "RB" ? [0.42, 0.24] : [0.52, 0.22];
+  }
+  return {rec_fd:(line.rec||0) * recRate, rush_fd:(line.rush_att||0) * rushRate};
+}
+
+/* ----------------------------------------------------------------- columns */
+function columns(){
+  const p1 = MY_PICKS.find(n => n > made) || null;
+  const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
+  const cols = [
+    {k:"rk",  h:"#",    cell:r => `<span class="rk">${r.rk}</span>`},
+    {k:"n",   h:"Player", cls:"l", cell:r => {
+      const own = taken.get(r.id);
+      const tag = !own ? "" : own.slot === MY_SLOT
+        ? '<span class="gl you">yours</span>' : '<span class="gl">drafted</span>';
+      const thin = r.thin ? `<span class="thin" title="Only ${r.g25} games in 2025 — the pass defended, TFL and QB hit backfill is unreliable for him">!</span>` : "";
+      return `<span class="nm">${esc(r.n)}</span>${thin}${tag}`;
+    }},
+    {k:"p",   h:"Pos",  cls:"l", cell:r => {
+      const [fg,bg] = PC[r.p];
+      return `<span class="p" style="color:${fg};background:${bg}">${r.p}</span>` +
+             `<span class="prk">${r.prk}</span>`;
+    }},
+    {k:"t",   h:"Tm",   cls:"l h2", cell:r => `<span class="fl">${esc(r.t)}</span>`},
+    {k:"a",   h:"Age",  cell:r => `<span class="fl">${r.a != null ? r.a : "—"}</span>`},
+    {k:"adp", h:"ADP",  cell:r => `<span class="fl">${fmt(r.adp)}</span>`},
+    {k:"s",   h:"PPR",  cls:"h2", cell:r => `<span class="fl">${fmt(r.s)}</span>`},
+    {k:"o",   h:"Ours", cell:r => `<span class="b">${fmt(r.o)}</span>`},
+    {k:"a25", h:"2025", cls:"h2", cell:r => `<span class="fl">${fmt(r.a25)}</span>`},
+  ];
+  if(espnCount) cols.push({k:"es", h:"ESPN", cls:"h2", cell:r => `<span class="fl">${fmt(r.es)}</span>`});
+  cols.push(
+    {k:"v",  h:"VORP", cell:r => `<span class="b">${fmt(r.v,2)}</span>`},
+    {k:"f",  h:"Fut",  cls:"h2", cell:r =>
+      r.f == null ? '<span class="fl">—</span>'
+      : `<span class="${r.f >= 1.15 ? "up" : r.f <= .92 ? "dn" : "fl"}">${r.f.toFixed(2)}</span>`},
+    {k:"pm", h:"Pos±", cls:"h2", title:r => r.pP ? `${r.p}${r.pP} → ${r.p}${r.pO} within position` : "",
+      cell:r => move(r.pm)},
+    {k:"om", h:"Ov±",  cls:"h2", title:r => r.rP ? `overall ${r.rP} → ${r.rO} across all offence` : "",
+      cell:r => move(r.om)},
+    {k:"b",  h:"Boost", cls:"h2", cell:r => r.b == null ? '<span class="fl">—</span>' : r.b + "%"},
+    {k:"rel", h:"vs med", cell:r => {
+      if(r.rel == null) return '<span class="fl">—</span>';
+      const bg = r.rel >= 2 ? "var(--upbg)" : r.rel <= -2 ? "var(--dnbg)" : "transparent";
+      const fg = r.rel >= 2 ? "var(--up)" : r.rel <= -2 ? "var(--dn)" : "var(--faint)";
+      return `<span class="pill" style="background:${bg};color:${fg}">${r.rel > 0 ? "+" : ""}${r.rel}</span>`;
+    }}
+  );
+  if(p1) cols.push({k:"s1", h:"@" + p1, title:() => `Chance he is still there at your pick #${p1}`,
+                    cell:r => survCell(r.s1)});
+  if(p2) cols.push({k:"s2", h:"@" + p2, title:() => `Chance he is still there at your pick #${p2}`,
+                    cell:r => survCell(r.s2)});
+  return cols;
+}
+const move = v => v == null ? '<span class="fl">—</span>'
+  : `<span class="${v > 0 ? "up" : v < 0 ? "dn" : "fl"}">${v > 0 ? "+" : ""}${v}</span>`;
+function survCell(p){
+  if(p == null) return '<span class="fl">—</span>';
+  const pct = Math.round(p * 100);
+  const fg = pct >= 60 ? "var(--up)" : pct >= 25 ? "var(--hot)" : "var(--dn)";
+  const bg = pct >= 60 ? "var(--upbg)" : pct >= 25 ? "var(--hotbg)" : "var(--dnbg)";
+  return `<span class="pill" style="background:${bg};color:${fg}">${pct}%</span>`;
+}
+
+/* ------------------------------------------------------------------ render */
+function render(){
+  if(!ROWS.length) return;
+  const cur = made + 1;
+  const p1 = MY_PICKS.find(n => n > made) || null;
+  const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
+  ROWS.forEach(r => {
+    r.s1 = survival(r.adp, r.reach, p1, cur);
+    r.s2 = survival(r.adp, r.reach, p2, cur);
+  });
+
+  const cols = columns();
+  /* The column set changes as the draft moves and as ESPN comes and goes, so a
+     sort key can vanish underneath us. */
+  if(!cols.some(c => c.k === sortKey)){ sortKey = "v"; sortDir = -1; }
+  $("hr").innerHTML = cols.map(c =>
+    `<th class="${c.cls||""}" data-k="${c.k}"${c.k === sortKey ? " data-on" : ""}>${c.h}</th>`).join("");
+
+  const q = $("q").value.trim().toLowerCase();
+  const hideDrafted = $("hide").checked, youngOnly = $("yng").checked;
+  const rs = ROWS.filter(r => {
+    if(pos === "OFF" && !OFF.includes(r.p)) return false;
+    if(pos === "IDP" && !DEF.includes(r.p)) return false;
+    if(!["ALL","OFF","IDP"].includes(pos) && r.p !== pos) return false;
+    if(hideDrafted && taken.has(r.id)) return false;
+    if(youngOnly && (r.a == null || r.a > 26)) return false;
+    if(q && !r.n.toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b) => {
+    const x = a[sortKey], y = b[sortKey];
+    let c = 0;
+    if(x == null && y == null) c = 0;
+    else if(x == null) return 1;              // blanks always trail, either direction
+    else if(y == null) return -1;
+    else c = typeof x === "string" ? sortDir * x.localeCompare(y) : sortDir * (x - y);
+    /* Every sort falls back to board order, so grouping by position or team lists
+       each group best-first instead of in whatever order the last sort left. */
+    return c || (b.v - a.v);
+  });
+
+  $("tb").innerHTML = rs.slice(0, 400).map(r => {
+    const own = taken.get(r.id);
+    const cls = own ? (own.slot === MY_SLOT ? "own" : "gone") : "";
+    return `<tr class="${cls}">` + cols.map(c => {
+      const t = c.title ? c.title(r) : "";
+      return `<td class="${c.cls||""}"${t ? ` title="${esc(t)}"` : ""}>${c.cell(r)}</td>`;
+    }).join("") + "</tr>";
+  }).join("");
+
+  const R = META.R, S = META.starts;
+  $("ft").innerHTML =
+    `${rs.length} of ${ROWS.length} scored${rs.length > 400 ? ", first 400 shown" : ""} &middot; ` +
+    `replacement QB ${R.QB} RB ${R.RB} WR ${R.WR} TE ${R.TE} DL ${R.DL} LB ${R.LB} DB ${R.DB} &middot; ` +
+    `league-wide starts QB ${S.QB} RB ${S.RB} WR ${S.WR} TE ${S.TE} DL ${S.DL} LB ${S.LB} DB ${S.DB}` +
+    `<br>` +
+    ((META.dry || []).length
+      ? `<span style="color:var(--hot)">Every startable ${META.dry.join(", ")} was consumed ` +
+        `filling the lineup, so ${META.dry.length > 1 ? "those replacement levels are" : "that replacement level is"} ` +
+        `a floor and VORP reads high there.</span><br>` : "") +
+    `Sleeper ${SEASON} projections + ${PRIOR} actuals + FantasyCalc` +
+    (espnCount ? ` + ESPN (${espnCount} matched)` : "") +
+    `, scored live in your browser &middot; data pulled ${lastLoad ? lastLoad.toLocaleTimeString() : "—"} ` +
+    `<button class="lnk" id="hardreload">reload player list</button>`;
+  const hr = $("hardreload");
+  if(hr) hr.onclick = () => loadAll({hardPlayers:true});
+
+  /* Recommendations track the pool, not the table filters, but they need the
+     survival numbers this function just refreshed. */
+  renderRecs();
+}
+
+/* ------------------------------------------------------------ recommendations */
+/* Three reads on the same pool, deliberately not blended into one number.
+   BPA is VORP alone. Our BPA weights VORP by the dynasty multiplier. The rules
+   edge is NOT applied on top of either: it is already inside Ours, and therefore
+   inside VORP, so multiplying by it again would count the rulebook twice. */
+function recommend(){
+  const avail = ROWS.filter(r => !taken.has(r.id));
+  if(!avail.length) return null;
+  const top = (list, f) => list.reduce((a,b) => f(b) > f(a) ? b : a);
+  const dyn = r => r.v * (r.f == null ? 1 : r.f);
+
+  const byV = avail.slice().sort((a,b) => b.v - a.v);
+  const byD = avail.slice().sort((a,b) => dyn(b) - dyn(a));
+  const paths = {};
+  for(const b of OFF.concat(DEF)){
+    const sub = avail.filter(r => r.p === b);
+    if(sub.length) paths[b] = top(sub, r => r.v);
+  }
+  return {bpa:byV[0], bpaNext:byV[1], ours:byD[0], oursNext:byD[1], paths, dyn};
+}
+
+function renderRecs(){
+  if(!ROWS.length || !META.R) return;
+  const rec = recommend();
+  if(!rec){ $("recs").innerHTML = ""; return; }
+  const p1 = MY_PICKS.find(n => n > made) || null;
+
+  const line = r => `${r.p}${r.prk} · ${r.t || "FA"} · age ${r.a != null ? r.a : "?"} · board #${r.rk}`;
+  const num = (k, v) => `<div class="num"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const box = (title, r, nums, why) =>
+    `<div class="rec"><h4>${title}</h4>` +
+    `<div class="who">${esc(r.n)}</div><div class="meta">${line(r)}</div>` +
+    `<div class="nums">${nums}</div><div class="why">${why}</div></div>`;
+
+  /* Roster context is stated, never scored. You draft best available and do not
+     reach for need, so this annotates the call rather than changing it. */
+  const slots = META.slots || {};
+  const filled = who => rosterFill(who, slots).reduce((a,f) => a + f.got, 0);
+  const now = filled(myRoster);
+  const fillsSlot = r => filled(myRoster.concat([r])) > now;
+  const qbShort = Math.max(0, 3 - myRoster.filter(r => r.p === "QB").length);
+
+  const b = rec.bpa, o = rec.ours;
+  const same = b.id === o.id;
+  const oAlt = same ? rec.oursNext : null;
+
+  const bpaBox = box("Best player available", b,
+    num("VORP", fmt(b.v,2)) + num("Ours", fmt(b.o)) +
+    (p1 ? num("@" + p1, b.s1 == null ? "—" : Math.round(b.s1*100) + "%") : ""),
+    `Top of the board on VORP alone — no dynasty weighting, no roster need. ` +
+    `Next: <em>${esc(rec.bpaNext.n)}</em> (${fmt(rec.bpaNext.v,2)}).`);
+
+  const ourBox = box("Our BPA · dynasty weighted", o,
+    num("Score", fmt(rec.dyn(o),2)) + num("VORP", fmt(o.v,2)) +
+    num("Fut", o.f == null ? "1.00" : o.f.toFixed(2)),
+    `<em>VORP × Fut.</em> The rules edge is already inside Ours, so it is not applied ` +
+    `again here. ` +
+    (same ? `Same call as raw BPA — the weighting does not change it.` +
+            (oAlt ? ` Next: <em>${esc(oAlt.n)}</em> (${fmt(rec.dyn(oAlt),2)}).` : "")
+          : `It moves ahead of <em>${esc(b.n)}</em> (${fmt(rec.dyn(b),2)}).`) +
+    /* The market publishes no dynasty values for defenders, so every one of them
+       carries a neutral 1.00 and can only ever lose ground to this weighting.
+       Say so when it actually decided the call. */
+    (!same && b.f == null
+      ? `<br><em>${esc(b.n)}</em> has no published dynasty value — the market rates no ` +
+        `defenders — so he sits at a neutral 1.00 and cannot gain here. Between these two ` +
+        `the weighting is not a fair fight.`
+      : (o.f == null ? `<br>No FantasyCalc value for him, so Fut defaults to a neutral 1.00.` : "")) +
+    (qbShort ? `<br>Still short <em>${qbShort} usable QB${qbShort > 1 ? "s" : ""}</em> of the three a superflex needs.` : "") +
+    `<br>${fillsSlot(o) ? `Fills an open ${o.p} or flex slot.`
+                        : `Your ${o.p} starting slots are already covered — pure best-available.`}`);
+
+  const rows = OFF.concat(DEF).filter(pp => rec.paths[pp]).map(pp => {
+    const r = rec.paths[pp], [fg,bg] = PC[pp];
+    const s = p1 && r.s1 != null ? Math.round(r.s1*100) + "%" : "";
+    return `<div class="path"><span class="p" style="color:${fg};background:${bg}">${pp}</span>` +
+           `<span class="nm2" title="${esc(r.n)} · board #${r.rk}">${esc(r.n)}</span>` +
+           `<span class="vv">${fmt(r.v,1)}</span>` +
+           `<span class="fl" style="min-width:34px;text-align:right">${s}</span></div>`;
+  }).join("");
+  const pathBox = `<div class="rec"><h4>Alternate paths · best left at each position</h4>` +
+    `<div class="paths">${rows}</div>` +
+    `<div class="why">VORP, then the chance he lasts to ${p1 ? "#" + p1 : "your next pick"}.</div></div>`;
+
+  $("recs").innerHTML = bpaBox + ourBox + pathBox;
+}
+
+function renderRoster(){
+  if(!ROWS.length || !META.R) return;      // the 45s poll can beat the first build
+  const slots = META.slots || {};
+  const fill = rosterFill(myRoster, slots);
+  const label = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
+  $("rosterstrip").innerHTML =
+    `<h3>Your roster &middot; slot ${MY_SLOT} &middot; ${myRoster.length} picked &middot; ${MY_PICKS.length} picks owned</h3>` +
+    `<div class="slots">` + fill.map(f => {
+      const cls = f.got >= f.need ? "full" : f.got > 0 ? "part" : "";
+      return `<span class="slot ${cls}">${label[f.slot] || f.slot} ${f.got}/${f.need}</span>`;
+    }).join("") + `</div>` +
+    (myRoster.length
+      ? `<div class="mine">` + myRoster.slice().sort((a,b) => b.v - a.v).map(r =>
+          `${esc(r.n)} <span class="pk">${r.p}${r.prk} &middot; board #${r.rk} &middot; ${fmt(r.o)} ppg</span>`)
+          .join(" &nbsp;·&nbsp; ") + `</div>`
+      : `<div class="mine">No picks yet.</div>`);
+
+  /* Superflex needs three usable quarterbacks. Standing reminder, not a nag
+     triggered by the roster being short — you asked to be prompted. */
+  const qbs = myRoster.filter(r => r.p === "QB").length;
+  const left = ROWS.filter(r => r.p === "QB" && !taken.has(r.id) && r.o >= META.R.QB).length;
+  $("qbwarn").innerHTML = qbs >= 3 ? "" :
+    `<div class="banner"><span class="ic">!</span><div>` +
+    `<b>Superflex: ${qbs} of 3 usable quarterbacks.</b> ` +
+    `${left} QB${left === 1 ? "" : "s"} still on the board project at or above replacement ` +
+    `(${META.R.QB} ppg). The league starts ${META.starts.QB} quarterbacks a week, so the ` +
+    `third one is a starter, not a handcuff.</div></div>`;
+}
+
+function renderStatic(){
+  $("cards").innerHTML = [
+    ["Median boost", META.med == null ? "—" : `+${META.med}%`, ""],
+    ["TE median", META.te == null ? "—" : `+${META.te}%`, "var(--up)"],
+    ["QB median", META.qb == null ? "—" : `+${META.qb}%`, ""],
+    ["RB median", META.rb == null ? "—" : `+${META.rb}%`, ""],
+    ["WR median", META.wr == null ? "—" : `+${META.wr}%`, "var(--dn)"]
+  ].map(([k,v,c]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v"${c ? ` style="color:${c}"` : ""}>${v}</div></div>`
+  ).join("");
+
+  $("note").innerHTML =
+    `<b>#</b> is board rank by VORP, the number next to the position is his rank at that position. ` +
+    `<b>vs med</b> is how far his scoring boost sits from the league median of +${META.med}% — ` +
+    `green means the rulebook favours him more than the field, red less. Defenders have no PPR ` +
+    `baseline, so boost, vs med and the rank movements are blank for them. ` +
+    `<b>@#</b> columns are the chance he lasts to your next two picks, conditioned on him being ` +
+    `available now. They are directional only, and they are context for planning several picks ` +
+    `ahead — not a reason to pass on a better player. Click any heading to sort.`;
+
+  $("gaps").innerHTML = [
+    `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
+    `<b>Sleeper never projects pass defended, TFL or QB hits.</b> They are scaled from each player's 2025 per-tackle rate. Pass defended is worth 3 points and a large share of DB scoring, so this materially moves the defensive board. Players with under 8 games in 2025 carry a <span class="thin">!</span> — treat their defensive number as unreliable.`,
+    `<b>The 2025 column is not strictly comparable to Ours.</b> Sleeper's actuals include the yardage bonuses; the projections cannot, so 2025 reads slightly high against a projection for the same player.`,
+    `<b>Return yards are never projected</b> for anyone. Prorated from 2025 actuals and priced by the league's own rate.`,
+    `<b>Defenders have no dynasty superflex ADP.</b> The market publishes none, so their ADP and survival columns fall back to Sleeper's <code>adp_idp</code>, which is a much thinner signal than the offensive ADP.`,
+    `<b>Survival uses sd 8</b> and this room's measured reach: rookie or 2nd year +17.9 spots early, 3rd–4th +1.8, veteran +1.3 late; by age, ≤24 +7.8, 25–27 −0.7, 28+ −2.9. Experience leads where it is known because it is the stronger signal, and the two are not added together. Roughly one pick in six misses ADP by more than five spots. The model also reads too harshly on anyone who has already slid well past his ADP and is still sitting there: it says he is nearly certain to go imminently, when in practice a player the room is actively passing on tends to keep sliding.`,
+    `<b>Replacement levels are recomputed on every refresh</b> by greedy flex fill against the real <code>roster_positions</code>, offence and defence alike. Nothing here is hardcoded.`,
+    `<b>FantasyPros is not wired in.</b> Their free API returns 403 and the CSV export would mean a data file, which this tool deliberately does not have. ESPN is used as a second opinion when their endpoint answers the browser's preflight; when it does not, the column simply is not there.`
+  ].map(s => `<li>${s}</li>`).join("");
+}
+
+/* -------------------------------------------------------------------- poll */
+function setFeed(state, text){
+  $("v-dot").className = "dot" + (state === "live" ? "" : state === "warn" ? " warn" : " off");
+  $("v-feed").textContent = text;
+}
+
+async function poll(){
+  if(!draft.id) return;
+  try{
+    const picks = await jget(`https://api.sleeper.app/v1/draft/${draft.id}/picks`);
+    made = picks.length;
+    taken = new Map();
+    for(const p of picks)
+      if(p.player_id) taken.set(String(p.player_id), {slot:p.draft_slot, pick:p.pick_no});
+    myRoster = ROWS.filter(r => { const t = taken.get(r.id); return t && t.slot === MY_SLOT; });
+
+    const next = MY_PICKS.find(n => n > made) || null, away = next ? next - made : 0;
+    const done = made >= draft.teams * draft.rounds;
+    const onClock = slotForPick(made + 1, draft.teams, draft.reversal);
+    $("v-made").textContent = made;
+    $("v-clock").textContent = done ? "draft over"
+      : `#${made + 1} · ${draft.names[onClock] || "slot " + onClock}`;
+    $("v-next").textContent = next ? "#" + next : "done";
+    const el = $("v-away");
+    el.textContent = next ? away : "—";
+    el.className = "v" + (next && away <= 3 ? " hot" : "");
+    lastPoll = new Date(); feedOk = true;
+    setFeed("live", "live " + lastPoll.toLocaleTimeString());
+    $("stalewarn").innerHTML = "";
+    renderRoster(); render();
+  }catch(e){
+    feedOk = false;
+    setFeed("off", "offline");
+    $("stalewarn").innerHTML =
+      `<div class="warn">Sleeper's draft feed is not answering (${esc(e.message)}). The board below is ` +
+      `still live and fully scored, it just cannot mark who has been drafted` +
+      (lastPoll ? ` — picks shown are as of ${lastPoll.toLocaleTimeString()}` : "") +
+      `. Retrying every ${POLL_MS / 1000}s.</div>`;
+  }
+}
+
+/* -------------------------------------------------------------------- load */
+async function loadAll(opts){
+  opts = opts || {};
+  if(busy) return;
+  busy = true;
+  const btn = $("refresh");
+  btn.disabled = true; btn.textContent = "Refreshing…";
+  try{
+    const league = await jget(`https://api.sleeper.app/v1/league/${LEAGUE}`);
+    SC = league.scoring_settings;
+    draft.id = league.draft_id;
+    const slots = slotCounts(league.roster_positions);
+    draft.teams = league.total_rosters || 12;
+
+    const [P, proj, prior, fcalc, dObj, tp, users] = await Promise.all([
+      loadPlayers(opts.hardPlayers),
+      jget(`https://api.sleeper.app/v1/projections/nfl/regular/${SEASON}`),
+      jget(`https://api.sleeper.app/v1/stats/nfl/regular/${PRIOR}`),
+      jget("https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1").catch(() => []),
+      jget(`https://api.sleeper.app/v1/draft/${draft.id}`).catch(() => null),
+      jget(`https://api.sleeper.app/v1/draft/${draft.id}/traded_picks`).catch(() => []),
+      jget(`https://api.sleeper.app/v1/league/${LEAGUE}/users`).catch(() => [])
+    ]);
+    PLAYERS = P;
+
+    if(dObj){
+      draft.rounds = (dObj.settings && dObj.settings.rounds) || 45;
+      draft.reversal = (dObj.settings && dObj.settings.reversal_round != null)
+        ? dObj.settings.reversal_round : 3;
+      draft.teams = (dObj.settings && dObj.settings.teams) || draft.teams;
+      draft.slots = dObj.slot_to_roster_id || {};
+      const byId = {};
+      for(const u of users) byId[u.user_id] = u.display_name || u.username || "";
+      draft.names = {};
+      for(const [uid, slot] of Object.entries(dObj.draft_order || {}))
+        if(byId[uid]) draft.names[slot] = byId[uid];
+    }
+    const [picks, myRid] = myPicksFrom(draft, tp, MY_SLOT);
+    MY_PICKS = picks; MY_ROSTER_ID = myRid;
+
+    const rows = buildRows(P, proj, prior, SC, futureMultipliers(fcalc));
+    const m = analyse(rows, slots, draft.teams);
+    ROWS = rows;
+    META = Object.assign({slots}, m);
+    lastLoad = new Date();
+
+    $("lg").textContent = `${league.name} · superflex · 2 PPR · TEP · ` +
+      `${(slots.DL||0) + (slots.LB||0) + (slots.DB||0) + (slots.IDP_FLEX||0)} IDP starters · slot ${MY_SLOT}`;
+    $("boot").hidden = true; $("app").hidden = false;
+    renderStatic(); renderRoster(); render();
+
+    /* Second opinion, after the board is already up so it never delays paint. */
+    loadEspn().then(by => {
+      let n = 0;
+      for(const r of ROWS){
+        const line = by[norm(r.n)];
+        if(!line || !OFF.includes(r.p)) continue;
+        const merged = Object.assign({}, line, firstDowns(line, prior[r.id] || {}, r.p));
+        r.es = +score(merged, r.p, SC).toFixed(1); n++;
+      }
+      espnCount = n;
+      if(n) render();
+    }).catch(() => { espnCount = 0; });
+
+    await poll();
+  }catch(e){
+    if(!ROWS.length){
+      $("boot").hidden = false; $("boot").className = "msg bad";
+      $("boot").textContent = "Couldn't load: " + e.message +
+        ". Sleeper may be rate limiting — press Refresh in a minute.";
+    }else{
+      $("stalewarn").innerHTML =
+        `<div class="warn">Refresh failed (${esc(e.message)}). Showing the board from ` +
+        `${lastLoad ? lastLoad.toLocaleTimeString() : "the last successful pull"}.</div>`;
+    }
+  }finally{
+    busy = false;
+    btn.disabled = false; btn.textContent = "Refresh";
+  }
+}
+
+/* ------------------------------------------------------------------ wiring */
+$("hr").addEventListener("click", e => {
+  const th = e.target.closest("th"); if(!th) return;
+  const k = th.dataset.k;
+  if(k === sortKey) sortDir = -sortDir;
+  else { sortKey = k; sortDir = ["n","p","t","adp","rk"].includes(k) ? 1 : -1; }
+  render();
+});
+document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
+  pos = b.dataset.f;
+  document.querySelectorAll("button[data-f]").forEach(o => o.setAttribute("aria-pressed", o === b));
+  render();
+});
+["q","hide","yng"].forEach(i => $(i).addEventListener("input", render));
+$("refresh").onclick = () => loadAll();
+
+loadAll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
