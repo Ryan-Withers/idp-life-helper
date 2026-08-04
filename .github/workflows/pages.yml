@@ -1,7 +1,7 @@
 name: Deploy Pages
 on:
   push:
-    branches: [main]
+    branches: [main, "claude/idp-life-draft-tool-r1ixfe"]
   workflow_dispatch:
 permissions:
   contents: read
