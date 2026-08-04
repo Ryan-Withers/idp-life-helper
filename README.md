@@ -72,7 +72,7 @@ At-a-glance calls on the undrafted pool. They ignore the table's filters and sor
 
 3. **Alternate paths** — the best player left at each of the seven positions, with VORP and the chance he lasts to your next pick. This is the "if I want to go RB here, who is it" answer.
 
-One honest caveat, stated in the box whenever it decides the call: **the market publishes no dynasty values for defenders**, so every IDP carries a neutral `Fut` of 1.00 and can only ever lose ground under the weighting. When Our BPA overtakes a defender, that is partly the weighting and partly a missing number.
+One honest caveat, stated in the box whenever it decides the call: **the market publishes no dynasty values for defenders**, so every IDP is scored on the age curve rather than a traded price. That is a weaker signal, so when Our BPA moves an offensive player ahead of a defender, treat the gap as softer than it looks.
 
 ### The rest
 
@@ -81,7 +81,7 @@ One honest caveat, stated in the box whenever it decides the call: **the market 
 - **Reads your roster off the picks feed** and fills it into the 19 starting slots, dedicated before flex, so the holes it shows are real holes.
 - **Prompts you for the third quarterback** without being asked, because superflex starts 24 of them league-wide and you forget every year.
 - **Survival columns** for your next two picks, labelled with the actual pick numbers.
-- **Every column pivots.** All 17 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
+- **Every column pivots.** All 18 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
 - If the draft feed drops the board keeps working and says the feed is offline rather than blanking.
 
 ---
