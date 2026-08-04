@@ -152,7 +152,8 @@ Read from `slot_to_roster_id` and `/traded_picks` rather than assumed from the s
 | Column | Meaning |
 |---|---|
 | **#** | Board rank by VORP across every player. The number beside the position is his rank at that position |
-| **ADP** | Sleeper `adp_dynasty_2qb`; defenders fall back to `adp_idp` |
+| **ADP** | What the market does. Sleeper `adp_dynasty_2qb`; defenders fall back to `adp_idp`, shown amber because it is not dynasty |
+| **iADP** | What your rules say. The pick he would go at if the room drafted to this board: `VORP × Fut × Age × Pos`, ranked. Room-neutral by design, so it excludes the personal terms (need, QB check, strike timing) and stays a property of the board rather than your roster. Green when the market lets him fall 12+ picks past where you rate him, red when the room takes him 12+ picks earlier |
 | **PPR** | Points per game, same projection, standard full PPR |
 | **Ours** | Points per game under this league's rules |
 | **2025** | Actual 2025 per-game under this league's rules |
