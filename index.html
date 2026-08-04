@@ -90,6 +90,15 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 input[type=search]{font:inherit;font-size:13px;background:var(--surf);color:var(--ink);
   border:1px solid var(--line2);border-radius:6px;padding:5px 10px;min-width:140px}
 label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer}
+/* Hover help. Inverts cleanly in both themes because ink and bg swap. */
+[data-tip]{position:relative}
+[data-tip]:hover::after,[data-tip]:focus-visible::after{
+  content:attr(data-tip);position:absolute;top:calc(100% + 7px);left:0;z-index:60;
+  background:var(--ink);color:var(--bg);font-size:11px;font-weight:400;line-height:1.45;
+  letter-spacing:0;text-transform:none;text-align:left;padding:6px 9px;border-radius:6px;
+  width:max-content;max-width:265px;white-space:normal;pointer-events:none;
+  box-shadow:0 4px 14px rgba(0,0,0,.24)}
+[data-tip].tr:hover::after,[data-tip].tr:focus-visible::after{left:auto;right:0}
 .note{font-size:12px;color:var(--dim);margin:10px 0 12px;max-width:96ch}
 .note b{color:var(--ink);font-weight:600}
 
@@ -166,15 +175,32 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
 
     <div class="bar">
       <span class="lbl">Position</span>
-      <button data-f="ALL" aria-pressed="true">All</button>
-      <button data-f="QB">QB</button><button data-f="RB">RB</button>
-      <button data-f="WR">WR</button><button data-f="TE">TE</button>
-      <button data-f="OFF">Offence</button>
-      <button data-f="DL">DL</button><button data-f="LB">LB</button>
-      <button data-f="DB">DB</button><button data-f="IDP">Defence</button>
-      <input type="search" id="q" placeholder="Search" aria-label="Search player">
-      <label class="c"><input type="checkbox" id="hide" checked> Hide drafted</label>
-      <label class="c"><input type="checkbox" id="yng"> Age &le;26</label>
+      <button data-f="ALL" aria-pressed="true"
+        data-tip="Everything scored, offence and defence, ranked by VORP.">All</button>
+      <button data-f="QB"
+        data-tip="Quarterbacks. Superflex starts 24 a week league-wide, so replacement sits near 19.9 and even an elite arm is only about +7 over free.">QB</button>
+      <button data-f="RB"
+        data-tip="Running backs. The format's biggest winner: the carry bonus, rushing first downs and 2 PPR receptions all stack.">RB</button>
+      <button data-f="WR"
+        data-tip="Wide receivers. The only position with no exclusive bonus, so the structural loser here. Every WR in the top 100 loses ground against the median.">WR</button>
+      <button data-f="TE"
+        data-tip="Tight ends. No dedicated slot exists, they reach the lineup only through FLEX, but the +0.5 reception bonus is the largest positional edge in the rulebook.">TE</button>
+      <button data-f="OFF"
+        data-tip="QB, RB, WR and TE together. 120 of these start league-wide each week.">Offence</button>
+      <button data-f="DL"
+        data-tip="Defensive line. Sacks pay 6 but are only about 5% of scoring; tackle volume still dominates.">DL</button>
+      <button data-f="LB"
+        data-tip="Linebackers. The one genuine defensive scarcity: the only defensive position where the top meaningfully separates from replacement.">LB</button>
+      <button data-f="DB"
+        data-tip="Defensive backs. Pass defended at 3 points is a large share of their scoring, and Sleeper never projects it, so these numbers lean hardest on the 2025 backfill.">DB</button>
+      <button data-f="IDP"
+        data-tip="DL, LB and DB together. Nine start every week, and the dynasty market publishes no IDP rankings at all.">Defence</button>
+      <span data-tip="Matches on player name only, not team or position.">
+        <input type="search" id="q" placeholder="Search" aria-label="Search player"></span>
+      <label class="c tr" data-tip="Removes anyone already taken in the live draft. Untick to see the full board with drafted players greyed out and your own picks highlighted.">
+        <input type="checkbox" id="hide" checked> Hide drafted</label>
+      <label class="c tr" data-tip="Dynasty view: hides anyone over 26. Players with no listed age are hidden too.">
+        <input type="checkbox" id="yng"> Age &le;26</label>
     </div>
 
     <p class="note" id="note"></p>
