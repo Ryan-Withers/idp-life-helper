@@ -90,8 +90,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 input[type=search]{font:inherit;font-size:13px;background:var(--surf);color:var(--ink);
   border:1px solid var(--line2);border-radius:6px;padding:5px 10px;min-width:140px}
 label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer}
-/* Hover help. Inverts cleanly in both themes because ink and bg swap. */
-[data-tip]{position:relative}
+/* Hover help. Inverts cleanly in both themes because ink and bg swap.
+   Deliberately no position:relative here: the only tipped elements are the
+   column headers, which are already sticky and so already a containing block.
+   An attribute selector would outrank th{position:sticky} and strand the
+   header row in the middle of the table. */
 [data-tip]:hover::after,[data-tip]:focus-visible::after{
   content:attr(data-tip);position:absolute;top:calc(100% + 7px);left:0;z-index:60;
   background:var(--ink);color:var(--bg);font-size:11px;font-weight:400;line-height:1.45;
@@ -140,10 +143,16 @@ summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0}
 summary:hover{color:var(--ink)}
 details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:100ch}
 footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid var(--line);padding-top:12px;line-height:1.8}
+/* Between the breakpoint and roughly 1100px all 18 columns are still on, so
+   tighten the gutters rather than let the page scroll sideways. */
+@media(max-width:1100px){td,th{padding-left:5px;padding-right:5px}}
 @media(max-width:900px){
   .h2{display:none}
   .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  th{position:static}
+  /* Not sticky inside the scroller, but still a containing block for the
+     tooltip. top must be reset or relative would honour it and shift the
+     header row 66px down the page. */
+  th{position:relative;top:auto}
 }
 </style>
 </head>
