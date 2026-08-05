@@ -471,7 +471,17 @@ function costOfWaiting(){
        above a cliff scores high no matter how ordinary he is: the 35th
        quarterback tops the board purely because the 36th is dreadful. Without
        the fallback ceiling you are back to VORP and defence floats. */
-    pool.forEach((r,i) => r.now = +Math.min(r.v, r.o - e[i + 1]).toFixed(2));
+    /* Waiting on a player only costs you anything in the branch where he is
+       gone. With probability s he is still sitting there and you lose nothing,
+       so the honest expected cost is (1 - s) x gap, not the gap itself. That
+       is why a linebacker certain to last now reads zero however large the gap
+       to the next man is. The VORP cap stays as a ceiling: a pick cannot be
+       worth more than the player is over a freely available one, which stops
+       anyone perched above a cliff scoring high on nothing but the fall. */
+    pool.forEach((r,i) => {
+      const gap = Math.min(r.v, r.o - e[i + 1]);
+      r.now = +(r.s1 == null ? gap : (1 - r.s1) * gap).toFixed(2);
+    });
     calib.push({p:b, best:pool[0], later:+e[1].toFixed(1),
                 loss:+(pool[0].o - e[1]).toFixed(1), depth:pool.length});
   }
