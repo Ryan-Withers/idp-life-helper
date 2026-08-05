@@ -138,6 +138,7 @@ tr.own:hover{background:var(--upbg)}
 .p{display:inline-block;min-width:19px;text-align:center;font-size:11px;font-weight:600;
   padding:1px 5px;border-radius:4px}
 .prk{color:var(--faint);font-size:11px;margin-left:4px}
+.alt{font-size:10px;font-weight:600;color:var(--idp);margin-left:2px;cursor:help}
 .pill{display:inline-block;min-width:30px;text-align:center;font-size:12px;font-weight:500;
   padding:1px 6px;border-radius:4px}
 .up{color:var(--up)} .dn{color:var(--dn)} .fl{color:var(--faint)}
@@ -232,7 +233,7 @@ const MY_SLOT = 11;
 const SEASON = 2026, PRIOR = 2025;
 const POLL_MS = 45000;
 const SURV_SD = 8;                 // measured spread of this room vs ADP
-const PLAYER_CACHE_KEY = "idp_players_v3";
+const PLAYER_CACHE_KEY = "idp_players_v4";
 const PLAYER_CACHE_MS = 864e5;     // 24h
 
 /* Standard full PPR, the comparison rulebook. Same stat line, different table. */
@@ -296,7 +297,7 @@ let draft = {id:null, teams:12, rounds:45, reversal:3, slots:{}, order:{}, names
 let MY_PICKS = [], MY_ROSTER_ID = null;
 let taken = new Map();             // player_id -> {slot, pick_no}
 let made = 0, myRoster = [];
-let pos = "ALL", sortKey = "adp", sortDir = 1;
+let pos = new Set(), sortKey = "adp", sortDir = 1;
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
 
 const $ = i => document.getElementById(i);
@@ -556,7 +557,7 @@ function buildRows(P, proj, prior, scoring, future){
   for(const id in proj){
     const meta = P[id]; if(!meta) continue;
     const pj = proj[id];
-    const [nm, b, tm, age, exp] = meta;
+    const [nm, b, tm, age, exp, elig] = meta;
     const gp = pj.gp || 0; if(gp < 12) continue;
 
     const s = Object.assign({}, pj);
@@ -621,7 +622,7 @@ function buildRows(P, proj, prior, scoring, future){
     }
 
     out.push({
-      id, n:nm, p:b, t:tm || "FA", a:age, exp,
+      id, n:nm, p:b, t:tm || "FA", a:age, exp, elig: elig || [b],
       adp: pickAdp(pj, isOff),
       o: +o.toFixed(1),
       s: isOff ? +(score(s, b, PPR) / gp).toFixed(1) : null,
@@ -771,11 +772,14 @@ async function loadPlayers(hard){
   const d = {};
   for(const id in raw){
     const p = raw[id], fp = p.fantasy_positions || [];
-    const b = OFF.includes(p.position) ? p.position
-            : fp.includes("DL") ? "DL" : fp.includes("LB") ? "LB" : fp.includes("DB") ? "DB" : null;
-    if(!b) continue;
-    d[id] = [((p.first_name||"") + " " + (p.last_name||"")).trim(), b, p.team || "",
-             p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null];
+    /* Sleeper lists every slot a player qualifies for and plenty of defenders
+       carry two. In a league starting nine of them that is real flexibility, so
+       keep the whole list rather than the first match. The primary is still one
+       position, because replacement level and VORP need him in exactly one pool. */
+    const elig = OFF.includes(p.position) ? [p.position] : DEF.filter(x => fp.includes(x));
+    if(!elig.length) continue;
+    d[id] = [((p.first_name||"") + " " + (p.last_name||"")).trim(), elig[0], p.team || "",
+             p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null, elig];
   }
   try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({t:Date.now(), d})); }catch(e){}
   return d;
@@ -856,10 +860,14 @@ function columns(){
       return `<span class="nm">${esc(r.n)}</span>${thin}${mech}${tag}`;
     }},
     {k:"p",   h:"Pos",  cls:"l",
-      tip:"Position, and the small number is his rank at that position on this board.",
+      tip:"Position, and the small number is his rank there on this board. A second position after a slash means Sleeper lists him eligible at both, which matters in a league starting nine defenders because he covers more slots. Filtering on either one will find him. Shift-click position buttons to combine them.",
       cell:r => {
       const [fg,bg] = PC[r.p];
+      /* A defender who qualifies at two spots fills more of your nine IDP slots,
+         so show the second one rather than burying it. */
+      const alt = (r.elig || []).filter(e => e !== r.p);
       return `<span class="p" style="color:${fg};background:${bg}">${r.p}</span>` +
+             (alt.length ? `<span class="alt" title="Also eligible at ${alt.join(" and ")}, so he covers more of your nine IDP starting slots">/${alt.join("/")}</span>` : "") +
              `<span class="prk">${r.prk}</span>`;
     }},
     {k:"t",   h:"Tm",   cls:"l h2", tip:"NFL team. FA means Sleeper lists no team for him.",
@@ -996,9 +1004,9 @@ function render(){
   const q = $("q").value.trim().toLowerCase();
   const hideDrafted = $("hide").checked, youngOnly = $("yng").checked;
   const rs = ROWS.filter(r => {
-    if(pos === "OFF" && !OFF.includes(r.p)) return false;
-    if(pos === "IDP" && !DEF.includes(r.p)) return false;
-    if(!["ALL","OFF","IDP"].includes(pos) && r.p !== pos) return false;
+    /* Match on any position he qualifies for, and accept any of the selected
+       filters, so RB plus WR shows both and an LB/DB shows under either. */
+    if(pos.size && !r.elig.some(e => pos.has(e))) return false;
     if(hideDrafted && taken.has(r.id)) return false;
     if(youngOnly && (r.a == null || r.a > 26)) return false;
     if(q && !r.n.toLowerCase().includes(q)) return false;
@@ -1436,9 +1444,26 @@ $("hr").addEventListener("click", e => {
   else { sortKey = k; sortDir = ["n","p","t","adp","rk","nrk","iadp"].includes(k) ? 1 : -1; }
   render();
 });
-document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
-  pos = b.dataset.f;
-  document.querySelectorAll("button[data-f]").forEach(o => o.setAttribute("aria-pressed", o === b));
+const POS_GROUP = {ALL:[], OFF:OFF, IDP:DEF};
+document.querySelectorAll("button[data-f]").forEach(btn => btn.onclick = ev => {
+  const f = btn.dataset.f;
+  if(f in POS_GROUP){
+    /* Group buttons replace the selection outright, single positions toggle,
+       so you can build RB + WR + TE or click Offence and be done. */
+    pos = new Set(POS_GROUP[f]);
+  }else if(ev.shiftKey || pos.size){
+    pos.has(f) ? pos.delete(f) : pos.add(f);
+  }else{
+    pos = new Set([f]);
+  }
+  document.querySelectorAll("button[data-f]").forEach(o => {
+    const k = o.dataset.f;
+    const on = k in POS_GROUP
+      ? (k === "ALL" ? pos.size === 0
+         : POS_GROUP[k].length === pos.size && POS_GROUP[k].every(x => pos.has(x)))
+      : pos.has(k);
+    o.setAttribute("aria-pressed", on);
+  });
   render();
 });
 ["q","hide","yng"].forEach(i => $(i).addEventListener("input", render));
