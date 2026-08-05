@@ -263,7 +263,14 @@ const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC
 const RULES = {
   ageMid: 26,                 // neutral age, younger scores up
   agePer: 0.030,              // per year either side
-  ageMin: 0.85, ageMax: 1.28
+  ageMin: 0.85, ageMax: 1.28,
+  /* YOUR INPUT, not a measurement. Sleeper's adp_idp comes from leagues that
+     start two or three defenders, so it is the wrong anchor for one that
+     starts nine, and it is noisy besides (Campbell 194.8 against Dean 414,
+     which matches no value order). Defensive ADP is therefore rebuilt from
+     our own value ranking, anchored on where you read this room taking the
+     first defender. Rounds 6 to 8 was your call; 70 is the middle of it. */
+  idpFirstPick: 70
 };
 /* Apply a dynasty weight without destroying the ordering below replacement.
    Multiplying a negative by a bonus makes it less negative, i.e. better, which
@@ -662,6 +669,17 @@ function analyse(rows, slots, teams){
      baseline, so nothing pulls them forward and they stay where the room
      actually takes them, which is late. ADP is used here purely as a timing
      anchor, never as a measure of value: VORP remains the value number. */
+  /* Rebuild defensive ADP from our value order, spread so the last of the 108
+     league-wide IDP starters is gone by the end of the draft. */
+  const idpStarters = (starts.DL || 0) + (starts.LB || 0) + (starts.DB || 0);
+  const lastPick = teams * (draft.rounds || 45);
+  const spacing = idpStarters > 0
+    ? Math.max(1, (lastPick - RULES.idpFirstPick) / (idpStarters * 3.5)) : 3;
+  rows.filter(r => DEF.includes(r.p)).sort((a,b) => b.v - a.v)
+      .forEach((r,i) => r.adpIdpRaw = r.adp, );
+  rows.filter(r => DEF.includes(r.p)).sort((a,b) => b.v - a.v)
+      .forEach((r,i) => r.adp = +(RULES.idpFirstPick + i * spacing).toFixed(1));
+
   rows.forEach(r => {
     if(r.adp == null){ r.cadp = null; return; }
     const edge = 1 + (r.rel || 0) / 100;
