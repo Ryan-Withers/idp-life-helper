@@ -221,28 +221,39 @@ The engine moved from `build_board.py` into the page, so there is no longer a ge
 
 ---
 
-## Unfinished: replacement level is the root problem
+## Replacement level is verified correct
 
-The board currently carries two rankings because one number is wrong at the root.
+The live greedy fill reproduces the independently confirmed season VORP figures **exactly**, all seven:
 
-`VORP` measures value against **replacement level**, defined as the best player available once every league starting slot is filled. That baseline is realistic for offence, where 288 players compete for 120 starting slots. It is fiction for defence, where 390 players compete for 108. You will never be forced down to the 45th linebacker, so the number VORP compares him against does not exist.
+| | confirmed | live calc |
+|---|---|---|
+| Bijan Robinson | 248 | 248 |
+| Puka Nacua | 211 | 211 |
+| Josh Allen | 182 | 182 |
+| Brock Bowers | 178 | 178 |
+| Devin Lloyd | 131 | 131 |
+| Brian Burns | 92 | 92 |
+| Kyle Hamilton | 75 | 75 |
 
-Everything downstream inherits it. `iADP` is built on VORP, so defenders sit high on the value board (Devin Lloyd at 20) while the live draft board correctly has them at 200+. That gap between `#` and `iADP` is not a display bug, it is the same error surfacing twice.
+The old hardcoded levels do not: they give Lloyd 102 against a confirmed 131. So `DL 10.0 / LB 10.2 / DB 10.4` is right and `11.7 / 11.9 / 12.2` was wrong. Do not "fix" this. Changing the baseline would break agreement with verified data.
 
-The interim fix in place is to leave `iADP` static on pure value and let `#` carry urgency separately. It works, but it means reading two columns and knowing which answers which question.
+### The anchors pass, on real data
 
-### The actual fix
+| check | target | actual |
+|---|---|---|
+| first defender | outside top 20 | **#21** |
+| defenders in top 20 | 0 | **0** |
+| defenders in top 50 | 1-2 | **4** |
+| defenders in top 100 | ~15 | **25** |
 
-Redefine replacement so it means the same thing at every position: **the best player you would realistically still be able to get**, rather than the last league-wide starter. Candidate approaches, in rough order of preference:
+### A warning about the test fixture
 
-1. **Roster-depth replacement.** Teams roster 45 players against 19 starters. Set replacement at a consistent multiple of starters rather than at starters + 1. A steep position's replacement falls a long way when you go deeper; a flat one barely moves. That asymmetry is exactly what is missing, and it is static. Needs a defensible multiple, ideally derived from how many of each position actually get rostered in this league rather than assumed.
-2. **Survival-based replacement**, already built as `Now`. Correct but dynamic, so it cannot back a stable board.
-3. **Calibrate IDP replacement to a stated prior.** Fastest, and an explicit fudge factor that should be labelled as one on the page.
+`scratchpad/shot.mjs` reconstructs each player's stat line by scaling **one profile per position** until it reproduces that player's known points per game. This preserves the ordering within a position but flattens the spread across offence, which makes defenders look relatively stronger than they are.
 
-### Before shipping any of them
+Anchors measured on the fixture fail badly. Anchors measured on real data pass. **Always verify positional balance against real data.** Several hours were lost chasing a defence-overvaluation problem that existed only in the fixture.
 
-- Re-run the sanity anchors: no defender inside the top 20, one or two in the top 50, roughly fifteen in the top 100. These describe the **value** board, not the urgency board.
-- Confirm against the independently verified season VORP shape: Bijan 248, Nacua 211, Allen 182, Bowers 178, Devin Lloyd 131, Burns 92, Hamilton 75. The best linebacker is worth about half the best running back.
-- Check Kenneth Walker specifically. He should outrank the linebackers on the live board and that has never been verified, because he is drafted in the test fixture.
+Do **not** apply a haircut to IDP projections. Per-stat regression of 2026 projection on 2025 actual shows defensive stats are discounted as hard or harder than offensive ones (solo tackles 0.750, sacks 0.756, assists 0.622, against pass yards 0.883 and rush yards 0.763). The aggregate gap that originally suggested bias was a composition effect from quarterbacks.
 
-Do **not** apply a haircut to IDP projections. Per-stat regression of 2026 projection on 2025 actual shows defensive stats are discounted as hard or harder than offensive ones (solo tackles 0.750, sacks 0.756, assists 0.622, against pass yards 0.883 and rush yards 0.763). The aggregate gap that originally suggested bias was a composition effect from quarterbacks. That idea is dead.
+### Still unverified
+
+Kenneth Walker has never been checked against the linebackers on the live board, because he is drafted in the fixture.
