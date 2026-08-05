@@ -269,8 +269,9 @@ const RULES = {
      starts nine, and it is noisy besides (Campbell 194.8 against Dean 414,
      which matches no value order). Defensive ADP is therefore rebuilt from
      our own value ranking, anchored on where you read this room taking the
-     first defender. Rounds 6 to 8 was your call; 70 is the middle of it. */
-  idpFirstPick: 70
+     first defender. 95 is where the analysis landed: the pick at which the best
+     linebacker becomes worth more than the best offensive player left. */
+  idpFirstPick: 95
 };
 /* Apply a dynasty weight without destroying the ordering below replacement.
    Multiplying a negative by a bonus makes it less negative, i.e. better, which
@@ -471,7 +472,7 @@ function fallbacks(pool, repl){
    score near zero because the room hands you a near identical player later,
    which is what pushes defence down the board without any invented constant. */
 function costOfWaiting(){
-  const p1 = MY_PICKS.find(n => n > made) || null;
+  const p1 = futurePicks().p1;
   /* No next pick means waiting is not an option, so there is nothing to measure
      against. Rather than let every drop-off silently collapse to zero on the
      final pick, the column is withdrawn and the board falls back to VORP, which
@@ -673,8 +674,13 @@ function analyse(rows, slots, teams){
      league-wide IDP starters is gone by the end of the draft. */
   const idpStarters = (starts.DL || 0) + (starts.LB || 0) + (starts.DB || 0);
   const lastPick = teams * (draft.rounds || 45);
+  /* Spread the 108 league-wide IDP starters across the picks that remain after
+     the anchor. Packing them tighter than this breaks the survival maths: every
+     defender ends up either comfortably ahead of you or hopelessly behind, none
+     ever borderline, so P(gone) is always zero and the Now column goes dead for
+     nine of your nineteen starting slots. */
   const spacing = idpStarters > 0
-    ? Math.max(1, (lastPick - RULES.idpFirstPick) / (idpStarters * 3.5)) : 3;
+    ? Math.max(1, (lastPick - RULES.idpFirstPick) / idpStarters) : 3;
   rows.filter(r => DEF.includes(r.p)).sort((a,b) => b.v - a.v)
       .forEach((r,i) => r.adpIdpRaw = r.adp, );
   rows.filter(r => DEF.includes(r.p)).sort((a,b) => b.v - a.v)
@@ -782,8 +788,7 @@ function firstDowns(line, ac, position){
 
 /* ----------------------------------------------------------------- columns */
 function columns(){
-  const p1 = MY_PICKS.find(n => n > made) || null;
-  const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
+  const {p1, p2} = futurePicks();
   const cols = [
     {k:"iadp", h:"#", tip:"The board: rank by Our ADP, where each player actually goes once corrected for this league's scoring and your dynasty rules. Static, so you can quote it all draft. VORP is still the value number and is verified against seven confirmed season figures; this is the draft order.",
       cell:r => `<span class="rk">${r.iadp}</span>`},
@@ -900,9 +905,7 @@ function survCell(p){
 /* ------------------------------------------------------------------ render */
 function render(){
   if(!ROWS.length) return;
-  const cur = made + 1;
-  const p1 = MY_PICKS.find(n => n > made) || null;
-  const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
+  const {cur, p1, p2} = futurePicks();
   ROWS.forEach(r => {
     r.s1 = survival(r.adp, r.reach, p1, cur);
     r.s2 = survival(r.adp, r.reach, p2, cur);
@@ -973,6 +976,18 @@ function render(){
   stick();
 }
 
+/* The picks that cost-of-waiting is measured against. When you are on the clock
+   the pick you are making now is NOT the answer to "what does waiting cost":
+   survival to your own current pick is trivially 100% and the Now column dies.
+   The relevant horizon is always the picks strictly after this one. */
+function futurePicks(){
+  const cur = made + 1;
+  const rest = MY_PICKS.filter(n => n >= cur);
+  const onClock = rest[0] === cur;
+  return {cur, p1: (onClock ? rest[1] : rest[0]) || null,
+               p2: (onClock ? rest[2] : rest[1]) || null};
+}
+
 /* ------------------------------------------------------------ recommendations */
 /* Three reads on the same pool, deliberately not blended into one number.
    BPA is VORP alone. Our BPA weights VORP by the dynasty multiplier. The rules
@@ -1038,7 +1053,7 @@ function renderRecs(){
   if(!ROWS.length || !META.R) return;
   const rec = recommend();
   if(!rec){ $("recs").innerHTML = ""; return; }
-  const p1 = MY_PICKS.find(n => n > made) || null;
+  const p1 = futurePicks().p1;
 
   const line = r => `${r.p}${r.prk} · ${r.t || "FA"} · age ${r.a != null ? r.a : "?"} · board #${r.rk}`;
   const num = (k, v) => `<div class="num"><div class="k">${k}</div><div class="v">${v}</div></div>`;
