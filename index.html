@@ -649,8 +649,27 @@ function analyse(rows, slots, teams){
      neutral on purpose, so it excludes the personal terms (need, QB check,
      strike timing) and stays a property of the board rather than your roster.
      Compare it against market ADP to see where the room disagrees with you. */
-  const neutral = r => weight(r.v, r.f != null ? r.f : ageMult(r.a));
-  rows.slice().sort((a,b) => neutral(b) - neutral(a)).forEach((r,i) => r.iadp = i + 1);
+  /* Our ADP. An ADP is a prediction of where a player actually goes, so it is
+     anchored to the market rather than to our own ranking, then corrected for
+     the two things the market does not price for this league: our scoring
+     (the rules edge, how far the rulebook favours him against the field) and
+     dynasty runway (Fut, or the age curve where no dynasty value is published).
+
+         our ADP = market ADP / (rules edge x dynasty weight)
+
+     Favour him more than the market does and he moves earlier; less and he
+     slides. Defenders carry no rules edge because they have no standard
+     baseline, so nothing pulls them forward and they stay where the room
+     actually takes them, which is late. ADP is used here purely as a timing
+     anchor, never as a measure of value: VORP remains the value number. */
+  rows.forEach(r => {
+    if(r.adp == null){ r.cadp = null; return; }
+    const edge = 1 + (r.rel || 0) / 100;
+    const mult = r.f != null ? r.f : ageMult(r.a);
+    r.cadp = +(r.adp / Math.max(0.2, edge * mult)).toFixed(1);
+  });
+  rows.slice().sort((a,b) => (a.cadp == null ? 1e9 : a.cadp) - (b.cadp == null ? 1e9 : b.cadp))
+      .forEach((r,i) => r.iadp = i + 1);
 
   const posMed = b => {
     const m = median(rows.filter(r => r.p === b && r.b != null).map(r => r.b));
@@ -748,7 +767,7 @@ function columns(){
   const p1 = MY_PICKS.find(n => n > made) || null;
   const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
   const cols = [
-    {k:"iadp", h:"#", tip:"The board. Value under this league's scoring, weighted for dynasty runway. Verified: it reproduces all seven independently confirmed season VORP figures exactly, and passes the positional anchors on live data. Static, so you can quote it all draft. It says how good he is, not when to take him: that is the Now column.",
+    {k:"iadp", h:"#", tip:"The board: rank by Our ADP, where each player actually goes once corrected for this league's scoring and your dynasty rules. Static, so you can quote it all draft. VORP is still the value number and is verified against seven confirmed season figures; this is the draft order.",
       cell:r => `<span class="rk">${r.iadp}</span>`},
     {k:"n",   h:"Player", cls:"l",
       tip:"An amber ! means under 8 games in 2025, so his pass defended, TFL and QB hit backfill is unreliable.",
@@ -775,6 +794,17 @@ function columns(){
       title:r => OFF.includes(r.p) ? "Sleeper dynasty superflex ADP (adp_dynasty_2qb)"
                                    : "Sleeper IDP ADP (adp_idp). NOT dynasty, no dynasty IDP ADP is published",
       cell:r => `<span class="fl${OFF.includes(r.p) ? "" : " thin"}">${fmt(r.adp)}</span>`},
+    {k:"cadp", h:"Our ADP",
+      tip:"Where he actually goes, corrected for this league. Market ADP divided by the rules edge and the dynasty weight, so a player our rulebook favours more than the field moves earlier and a win-now asset slides. Defenders have no rules edge, so nothing pulls them forward and they stay as late as the room really takes them. The # column is the rank of this number.",
+      title:r => r.cadp == null ? "No market ADP to anchor to"
+        : `Market ${r.adp}, ours ${r.cadp}` + (Math.abs(r.cadp - r.adp) < 1 ? ", the market has him about right"
+            : r.cadp < r.adp ? `, we would take him ${Math.round(r.adp - r.cadp)} picks earlier`
+                             : `, we would let him slide ${Math.round(r.cadp - r.adp)} picks`),
+      cell:r => {
+        if(r.cadp == null) return '<span class="fl">—</span>';
+        const d = r.adp - r.cadp;
+        return `<span class="${d >= 6 ? "up" : d <= -6 ? "dn" : "fl"}">${r.cadp}</span>`;
+      }},
     {k:"s",   h:"PPR",  cls:"h2",
       tip:"Points per game if this league used standard full PPR. A comparison baseline only, it is not what you score.",
       cell:r => `<span class="fl">${fmt(r.s)}</span>`},
@@ -1148,10 +1178,10 @@ function renderStatic(){
   ).join("");
 
   $("note").innerHTML =
-    `Sorted by <b>ADP</b>, what your leaguemates see. <b>#</b> is our board: how good he is, ` +
-    `verified against seven confirmed season VORP figures. <b>Now</b> is when to take him, ` +
-    `what waiting costs against the best you could get at his position instead. ` +
-    `High # and low Now means good, but he will keep. Hover any heading for the maths.`;
+    `<b>ADP</b> is what the room sees. <b>Our ADP</b> is where he really goes once corrected for ` +
+    `this league's scoring and your dynasty rules, and <b>#</b> ranks it. Green means we take him ` +
+    `earlier than the market, red means we let him slide. <b>VORP</b> is still the value number. ` +
+    `Hover any heading for the maths.`;
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
