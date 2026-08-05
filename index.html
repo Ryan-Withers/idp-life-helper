@@ -83,12 +83,14 @@ table.calib td{border-bottom:none;padding:3px 12px 3px 0}
 .path{display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.6}
 .path .nm2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .path .vv{font-weight:600;min-width:38px;text-align:right}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin:14px 0 4px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:6px;margin:10px 0 0}
+.card .v{font-size:16px}
 .card{background:var(--surf2);border-radius:8px;padding:8px 12px}
 .card .k{font-size:11px;color:var(--dim)}
 .card .v{font-size:19px;font-weight:600;line-height:1.25}
 
-.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:14px 0 4px}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0;padding:10px 0 8px;
+  position:sticky;top:var(--hdr,66px);z-index:25;background:var(--bg);border-bottom:1px solid var(--line)}
 .bar .lbl{font-size:12px;color:var(--dim);margin-right:2px}
 input[type=search]{font:inherit;font-size:13px;background:var(--surf);color:var(--ink);
   border:1px solid var(--line2);border-radius:6px;padding:5px 10px;min-width:140px}
@@ -105,7 +107,7 @@ label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;
   width:max-content;max-width:265px;white-space:normal;pointer-events:none;
   box-shadow:0 4px 14px rgba(0,0,0,.24)}
 [data-tip].tr:hover::after,[data-tip].tr:focus-visible::after{left:auto;right:0}
-.note{font-size:12px;color:var(--dim);margin:10px 0 12px;max-width:96ch}
+.note{font-size:12px;color:var(--dim);margin:8px 0 10px;max-width:110ch}
 .note b{color:var(--ink);font-weight:600}
 
 /* No overflow on .scroll at desktop widths: any non-visible overflow would make
@@ -113,7 +115,7 @@ label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;
    Below the breakpoint it becomes a scroll container so the table, rather than
    the whole page, is what slides sideways — sticky is given up there. */
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{position:sticky;top:66px;background:var(--bg);z-index:20;font-weight:600;font-size:11px;
+th{position:sticky;top:calc(var(--hdr,66px) + var(--barh,40px));background:var(--bg);z-index:20;font-weight:600;font-size:11px;
   letter-spacing:.03em;color:var(--dim);text-align:right;padding:7px 7px;
   border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap}
 th.l{text-align:left} th:hover{color:var(--ink)} th[data-on]{color:var(--ink)}
@@ -142,7 +144,8 @@ tr.own:hover{background:var(--upbg)}
 .warn{background:var(--dnbg);border:1px solid var(--dn);color:var(--dn);border-radius:8px;
   padding:9px 13px;font-size:12px;margin:12px 0 0}
 details{margin-top:20px;font-size:12px;color:var(--dim)}
-summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0}
+summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0;font-size:12px}
+#calibwrap,#rosterwrap{margin-top:10px}
 summary:hover{color:var(--ink)}
 details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:100ch}
 footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid var(--line);padding-top:12px;line-height:1.8}
@@ -181,9 +184,9 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
 
   <div id="app" hidden>
     <div class="recs" id="recs"></div>
-    <div id="calib"></div>
+    <details id="calibwrap"><summary>Cost of waiting, per position</summary><div id="calib"></div></details>
     <div id="qbwarn"></div>
-    <div class="strip" id="rosterstrip"></div>
+    <details id="rosterwrap" open><summary>Your roster and holes</summary><div class="strip" id="rosterstrip"></div></details>
     <div class="cards" id="cards"></div>
 
     <div class="bar">
@@ -274,7 +277,7 @@ let draft = {id:null, teams:12, rounds:45, reversal:3, slots:{}, order:{}, names
 let MY_PICKS = [], MY_ROSTER_ID = null;
 let taken = new Map();             // player_id -> {slot, pick_no}
 let made = 0, myRoster = [];
-let pos = "ALL", sortKey = "now", sortDir = -1;
+let pos = "ALL", sortKey = "adp", sortDir = 1;
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
 
 const $ = i => document.getElementById(i);
@@ -490,10 +493,11 @@ function costOfWaiting(){
   /* The board order. Everyone is measured the same way: against the best you
      could actually get at that position instead, never against a free player
      you will not be forced down to. Ties, which are common because anyone
-     certain to survive scores exactly zero, fall back to iADP so that among
-     players you can equally wait on the more valuable one leads. */
+     certain to survive scores exactly zero, fall back to ADP. Among players you
+     can equally wait on, the one the room takes soonest leads and the one it
+     ignores until round 18 sinks, which is where a linebacker belongs. */
   ROWS.filter(r => r.now != null)
-      .sort((a,b) => (b.now - a.now) || (a.iadp - b.iadp))
+      .sort((a,b) => (b.now - a.now) || ((a.adp == null ? 9999 : a.adp) - (b.adp == null ? 9999 : b.adp)))
       .forEach((r,i) => r.nrk = i + 1);
   ROWS.forEach(r => { if(r.now == null) r.nrk = null; });
   return {mode:"live", p1, calib};
@@ -922,6 +926,7 @@ function render(){
   /* Recommendations track the pool, not the table filters, but they need the
      survival numbers this function just refreshed. */
   renderRecs();
+  stick();
 }
 
 /* ------------------------------------------------------------ recommendations */
@@ -1137,22 +1142,18 @@ function renderRoster(){
 function renderStatic(){
   $("cards").innerHTML = [
     ["Median boost", META.med == null ? "—" : `+${META.med}%`, ""],
-    ["TE median", META.te == null ? "—" : `+${META.te}%`, "var(--up)"],
-    ["QB median", META.qb == null ? "—" : `+${META.qb}%`, ""],
-    ["RB median", META.rb == null ? "—" : `+${META.rb}%`, ""],
-    ["WR median", META.wr == null ? "—" : `+${META.wr}%`, "var(--dn)"]
+    ["TE", META.te == null ? "—" : `+${META.te}%`, "var(--up)"],
+    ["QB", META.qb == null ? "—" : `+${META.qb}%`, ""],
+    ["RB", META.rb == null ? "—" : `+${META.rb}%`, ""],
+    ["WR", META.wr == null ? "—" : `+${META.wr}%`, "var(--dn)"]
   ].map(([k,v,c]) =>
     `<div class="card"><div class="k">${k}</div><div class="v"${c ? ` style="color:${c}"` : ""}>${v}</div></div>`
   ).join("");
 
   $("note").innerHTML =
-    `<b>Hover any column heading</b> for what it means and how it is built. ` +
-    `<b>VORP</b> is points per game above replacement at his own position, where replacement is ` +
-    `the best player available for free once all 12 teams have filled every starting slot ` +
-    `(QB ${META.R.QB}, RB ${META.R.RB}, WR ${META.R.WR}, TE ${META.R.TE}, computed live). It is not a ` +
-    `comparison against the next player on the board. ` +
-    `<b>ADP</b> is what the market does, <b>iADP</b> is what your rules say, so the gap between them ` +
-    `is where the room disagrees with you. Click any heading to sort, click again to reverse.`;
+    `Sorted by <b>ADP</b>, what your leaguemates see. <b>#</b> is our board, ranked by ` +
+    `<b>Now</b>: what taking him this pick is worth against the best you could actually get ` +
+    `at his position instead. <b>iADP</b> is pure value. Hover any heading for the maths.`;
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
@@ -1304,6 +1305,15 @@ document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
 });
 ["q","hide","yng"].forEach(i => $(i).addEventListener("input", render));
 $("refresh").onclick = () => loadAll();
+
+/* Header and filter bar are both sticky, so the headings must sit below the
+   sum of their measured heights rather than a guessed constant. */
+function stick(){
+  const h = document.querySelector("header"), b = document.querySelector(".bar");
+  if(h) document.documentElement.style.setProperty("--hdr", h.offsetHeight + "px");
+  if(b && b.offsetHeight) document.documentElement.style.setProperty("--barh", b.offsetHeight + "px");
+}
+addEventListener("resize", stick);
 
 /* Console hook, for auditing the maths against the live board. */
 window.IDP = {rows:() => ROWS, meta:() => META, fit, recommend, picks:() => MY_PICKS};
