@@ -748,8 +748,8 @@ function columns(){
   const p1 = MY_PICKS.find(n => n > made) || null;
   const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
   const cols = [
-    {k:"nrk", h:"#", tip:"The board. Everyone ranked the same way: by what taking him now is worth against the best you could actually get at his position instead, never against a free player you will not be forced down to. That is why defence sits where it does, not because it was penalised. Falls back to VORP rank when there is no next pick to measure against.",
-      cell:r => `<span class="rk">${r.nrk != null ? r.nrk : r.rk}</span>`},
+    {k:"iadp", h:"#", tip:"The board. Value under this league's scoring, weighted for dynasty runway. Verified: it reproduces all seven independently confirmed season VORP figures exactly, and passes the positional anchors on live data. Static, so you can quote it all draft. It says how good he is, not when to take him: that is the Now column.",
+      cell:r => `<span class="rk">${r.iadp}</span>`},
     {k:"n",   h:"Player", cls:"l",
       tip:"An amber ! means under 8 games in 2025, so his pass defended, TFL and QB hit backfill is unreliable.",
       cell:r => {
@@ -775,17 +775,6 @@ function columns(){
       title:r => OFF.includes(r.p) ? "Sleeper dynasty superflex ADP (adp_dynasty_2qb)"
                                    : "Sleeper IDP ADP (adp_idp). NOT dynasty, no dynasty IDP ADP is published",
       cell:r => `<span class="fl${OFF.includes(r.p) ? "" : " thin"}">${fmt(r.adp)}</span>`},
-    {k:"iadp", h:"iADP",
-      tip:"What your rules say. The pick he would go at if the room drafted to this board: VORP scaled by dynasty value, age and positional scarcity. Green means the market lets him fall well past where you rate him. Red means the room pays up for someone you rate lower.",
-      title:r => r.adp == null ? `Your rules say pick ${r.iadp}. No market ADP to compare against`
-        : `Your rules say pick ${r.iadp}, the market says ${r.adp}. ` +
-          (r.adp - r.iadp >= 0 ? `He lasts about ${Math.round(r.adp - r.iadp)} picks longer than you rate him`
-                               : `The room takes him about ${Math.round(r.iadp - r.adp)} picks earlier than you rate him`),
-      cell:r => {
-        const gap = r.adp == null ? null : r.adp - r.iadp;
-        const c = gap == null ? "fl" : gap >= 12 ? "up" : gap <= -12 ? "dn" : "fl";
-        return `<span class="${c}">${r.iadp}</span>`;
-      }},
     {k:"s",   h:"PPR",  cls:"h2",
       tip:"Points per game if this league used standard full PPR. A comparison baseline only, it is not what you score.",
       cell:r => `<span class="fl">${fmt(r.s)}</span>`},
@@ -1159,9 +1148,10 @@ function renderStatic(){
   ).join("");
 
   $("note").innerHTML =
-    `Sorted by <b>ADP</b>, what your leaguemates see. <b>#</b> is our board, ranked by ` +
-    `<b>Now</b>: what taking him this pick is worth against the best you could actually get ` +
-    `at his position instead. <b>iADP</b> is pure value. Hover any heading for the maths.`;
+    `Sorted by <b>ADP</b>, what your leaguemates see. <b>#</b> is our board: how good he is, ` +
+    `verified against seven confirmed season VORP figures. <b>Now</b> is when to take him, ` +
+    `what waiting costs against the best you could get at his position instead. ` +
+    `High # and low Now means good, but he will keep. Hover any heading for the maths.`;
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
