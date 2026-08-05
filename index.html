@@ -274,7 +274,7 @@ let draft = {id:null, teams:12, rounds:45, reversal:3, slots:{}, order:{}, names
 let MY_PICKS = [], MY_ROSTER_ID = null;
 let taken = new Map();             // player_id -> {slot, pick_no}
 let made = 0, myRoster = [];
-let pos = "ALL", sortKey = "v", sortDir = -1;
+let pos = "ALL", sortKey = "now", sortDir = -1;
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
 
 const $ = i => document.getElementById(i);
@@ -486,6 +486,16 @@ function costOfWaiting(){
                 loss:+(pool[0].o - e[1]).toFixed(1), depth:pool.length});
   }
   ROWS.forEach(r => { if(taken.has(r.id)) r.now = null; });
+
+  /* The board order. Everyone is measured the same way: against the best you
+     could actually get at that position instead, never against a free player
+     you will not be forced down to. Ties, which are common because anyone
+     certain to survive scores exactly zero, fall back to iADP so that among
+     players you can equally wait on the more valuable one leads. */
+  ROWS.filter(r => r.now != null)
+      .sort((a,b) => (b.now - a.now) || (a.iadp - b.iadp))
+      .forEach((r,i) => r.nrk = i + 1);
+  ROWS.forEach(r => { if(r.now == null) r.nrk = null; });
   return {mode:"live", p1, calib};
 }
 
@@ -727,8 +737,8 @@ function columns(){
   const p1 = MY_PICKS.find(n => n > made) || null;
   const p2 = MY_PICKS.find(n => n > (p1 || made)) || null;
   const cols = [
-    {k:"rk",  h:"#", tip:"Rank on this board by VORP, every player, offence and defence together. This is how picks get reported, never by ADP.",
-      cell:r => `<span class="rk">${r.rk}</span>`},
+    {k:"nrk", h:"#", tip:"The board. Everyone ranked the same way: by what taking him now is worth against the best you could actually get at his position instead, never against a free player you will not be forced down to. That is why defence sits where it does, not because it was penalised. Falls back to VORP rank when there is no next pick to measure against.",
+      cell:r => `<span class="rk">${r.nrk != null ? r.nrk : r.rk}</span>`},
     {k:"n",   h:"Player", cls:"l",
       tip:"An amber ! means under 8 games in 2025, so his pass defended, TFL and QB hit backfill is unreliable.",
       cell:r => {
@@ -779,7 +789,7 @@ function columns(){
     cell:r => `<span class="fl">${fmt(r.es)}</span>`});
   cols.push(
     {k:"now", h:"Now",
-      tip:"Cost of waiting. NOT the default ranking yet, because it does not pass the sanity anchors. What you gain by taking him on this pick instead of taking the best player left at his position when you next choose. VORP asks how much better than free he is; this asks what you actually lose by waiting, which is the draft decision. Steep positions score high, flat and deep ones score near zero because the room hands you a near identical player later.",
+      tip:"Cost of waiting, and what the board is ranked by. What you gain by taking him on this pick instead of taking the best player left at his position when you next choose. VORP asks how much better than free he is; this asks what you actually lose by waiting, which is the draft decision. Steep positions score high, flat and deep ones score near zero because the room hands you a near identical player later.",
       title:r => r.now == null ? "No next pick to measure against"
         : `Taking him now gains ${fmt(r.now,2)} ppg over the best ${r.p} expected to survive to your next pick`,
       cell:r => {
@@ -1284,7 +1294,7 @@ $("hr").addEventListener("click", e => {
   const th = e.target.closest("th"); if(!th) return;
   const k = th.dataset.k;
   if(k === sortKey) sortDir = -sortDir;
-  else { sortKey = k; sortDir = ["n","p","t","adp","rk","iadp"].includes(k) ? 1 : -1; }
+  else { sortKey = k; sortDir = ["n","p","t","adp","rk","nrk","iadp"].includes(k) ? 1 : -1; }
   render();
 });
 document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
