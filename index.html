@@ -599,18 +599,25 @@ function buildRows(P, proj, prior, scoring, future){
          simply has no idp_pass_def, idp_tkl_loss or idp_qb_hit fields. */
       app = +(score(pj, b, scoring) / gp).toFixed(2);
       /* What those three missing stats are actually worth, at 3, 2 and 1 point. */
-      const missing = {idp_pass_def:s.idp_pass_def || 0, idp_tkl_loss:s.idp_tkl_loss || 0,
-                       idp_qb_hit:s.idp_qb_hit || 0};
-      hid = +(score(missing, b, scoring) / gp).toFixed(2);
-      const trueScore = app + hid;
-      hidPct = trueScore > 0 ? Math.round(100 * hid / trueScore) : null;
-      if(o > 0) bf = +Math.max(0, hid / o).toFixed(3);
+      /* Only estimable with a 2025 sample to scale from. Without one, hidden is
+         unknown rather than zero: reporting zero would show a rookie as having
+         no invisible value and drop him dozens of places against peers who
+         merely have data. */
+      const missing = ag >= 6
+        ? {idp_pass_def:s.idp_pass_def || 0, idp_tkl_loss:s.idp_tkl_loss || 0,
+           idp_qb_hit:s.idp_qb_hit || 0} : null;
+      hid = missing ? +(score(missing, b, scoring) / gp).toFixed(2) : null;
+      const trueScore = missing ? app + hid : null;
+      if(missing){
+        hidPct = trueScore > 0 ? Math.round(100 * hid / trueScore) : null;
+        if(o > 0) bf = +Math.max(0, hid / o).toFixed(3);
       /* Which mechanism is doing the hiding. Edge rushers are buried by QB hits
          and TFL, corners by pass defended. */
-      const rush = (missing.idp_qb_hit * (scoring.idp_qb_hit || 0)) +
-                   (missing.idp_tkl_loss * (scoring.idp_tkl_loss || 0));
-      const cov = missing.idp_pass_def * (scoring.idp_pass_def || 0);
-      if(hid > 0.3) mech = rush > cov * 1.3 ? "RUSH" : cov > rush * 1.3 ? "COV" : "BOTH";
+        const rush = (missing.idp_qb_hit * (scoring.idp_qb_hit || 0)) +
+                     (missing.idp_tkl_loss * (scoring.idp_tkl_loss || 0));
+        const cov = missing.idp_pass_def * (scoring.idp_pass_def || 0);
+        if(hid > 0.3) mech = rush > cov * 1.3 ? "RUSH" : cov > rush * 1.3 ? "COV" : "BOTH";
+      }
     }
 
     out.push({
@@ -667,12 +674,25 @@ function analyse(rows, slots, teams){
 
   /* Within position: the honest read of whether he got better than his peers.
      Overall: the board reshuffling, which is where the tight end story lives. */
+  /* Both sides get the same two movement columns, each against the baseline its
+     own half of the board is misled by. Offence moves from standard PPR to this
+     league's rules. Defence moves from what the Sleeper app shows to what the
+     player is really worth once the three unprojected stats are priced. */
+  rows.forEach(r => {
+    const isOff = OFF.includes(r.p);
+    r._before = isOff ? r.s : r.app;
+    r._after  = isOff ? r.o : (r.app != null && r.hid != null ? +(r.app + r.hid).toFixed(2) : null);
+  });
   for(const b of OFF.concat(DEF))
-    for(const [fld, key] of [["s","pP"], ["o","pO"]])
+    for(const [fld, key] of [["_before","pP"], ["_after","pO"]])
       rows.filter(r => r.p === b && r[fld] != null)
           .sort((x,y) => y[fld] - x[fld]).forEach((r,i) => r[key] = i + 1);
-  rows.filter(r => r.s != null).sort((a,b) => b.s - a.s).forEach((r,i) => r.rP = i + 1);
-  rows.filter(r => r.s != null).sort((a,b) => b.o - a.o).forEach((r,i) => r.rO = i + 1);
+  /* Overall movement is across your own side of the ball, so a linebacker is
+     measured against every defender rather than against wide receivers. */
+  for(const side of [OFF, DEF])
+    for(const [fld, key] of [["_before","rP"], ["_after","rO"]])
+      rows.filter(r => side.includes(r.p) && r[fld] != null)
+          .sort((x,y) => y[fld] - x[fld]).forEach((r,i) => r[key] = i + 1);
   rows.forEach(r => {
     r.pm = (r.pP && r.pO) ? r.pP - r.pO : null;
     r.om = (r.rP && r.rO) ? r.rP - r.rO : null;
@@ -910,18 +930,20 @@ function columns(){
       r.f == null ? '<span class="fl">—</span>'
       : `<span class="${r.f >= 1.15 ? "up" : r.f <= .92 ? "dn" : "fl"}">${r.f.toFixed(2)}</span>`},
     {k:"pm", h:"Pos±", cls:"h2",
-      tip:"Rank change within his own position, standard PPR to this league's rules. The honest read of whether he got better relative to his direct peers. Hover a cell for the exact move.",
-      title:r => r.pP ? `${r.p}${r.pP} → ${r.p}${r.pO} within position` : "",
+      tip:"Rank change within his own position, and the honest read of whether he gained on his direct peers. Offence moves from standard full PPR to this league's rules. Defence moves from the score the Sleeper app displays to what he is really worth once pass defended, TFL and QB hits are priced. Positive means he climbs his own position group.",
+      title:r => r.pP ? `${r.p}${r.pP} → ${r.p}${r.pO} within position` +
+        (OFF.includes(r.p) ? ", standard PPR to our rules" : ", Sleeper app to true value") : "",
       cell:r => move(r.pm)},
     {k:"om", h:"Ov±",  cls:"h2",
-      tip:"Rank change across all offence. Where the board reshuffles, and where the tight end story lives: elite TEs hold their positional rank but jump 12 to 20 spots overall.",
-      title:r => r.rP ? `overall ${r.rP} → ${r.rO} across all offence` : "",
+      tip:"Rank change across his whole side of the ball, offence against offence and defence against defence. Where the board reshuffles: elite tight ends hold their positional rank but jump 12 to 20 spots overall, and the same happens to edge rushers once QB hits and TFL are priced.",
+      title:r => r.rP ? `overall ${r.rP} → ${r.rO} across all ` +
+        (OFF.includes(r.p) ? "offence" : "defence") : "",
       cell:r => move(r.om)},
     {k:"b",  h:"Boost", cls:"h2",
       tip:"Raw scoring inflation, this league against standard PPR. Close to meaningless on its own since the league inflates everyone by about 60%. Use vs med instead.",
       cell:r => r.b == null ? '<span class="fl">—</span>' : r.b + "%"},
     {k:"rel", h:"vs med",
-      tip:"Boost measured against the league median. This is the one that matters: green means the rulebook favours him more than it favours the field, red means less. Blank for defenders, who have no PPR baseline to compare against.",
+      tip:"Offence: scoring boost measured against the league median, so green means the rulebook favours him more than it favours the field. Defence: hidden share measured against the median for his own position, so green means more of his value is invisible to the room than is typical for a DL, LB or DB.",
       cell:r => {
       if(r.rel == null) return '<span class="fl">—</span>';
       const bg = r.rel >= 2 ? "var(--upbg)" : r.rel <= -2 ? "var(--dnbg)" : "transparent";
