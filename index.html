@@ -1265,7 +1265,7 @@ $("hr").addEventListener("click", e => {
   const th = e.target.closest("th"); if(!th) return;
   const k = th.dataset.k;
   if(k === sortKey) sortDir = -sortDir;
-  else { sortKey = k; sortDir = ["n","p","t","adp","rk"].includes(k) ? 1 : -1; }
+  else { sortKey = k; sortDir = ["n","p","t","adp","rk","iadp"].includes(k) ? 1 : -1; }
   render();
 });
 document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
