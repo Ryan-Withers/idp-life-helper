@@ -76,6 +76,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 .rec .num .v{font-size:17px;font-weight:600;line-height:1.2}
 .rec .why{font-size:11px;color:var(--dim);margin-top:auto;padding-top:9px;line-height:1.5}
 .rec .why em{font-style:normal;color:var(--ink)}
+table.calib{width:auto;margin-top:2px;font-size:12px}
+table.calib th{position:static;background:none;border-bottom:1px solid var(--line);padding:3px 12px 3px 0;cursor:default;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+table.calib td{border-bottom:none;padding:3px 12px 3px 0}
 .paths{display:flex;flex-direction:column;gap:3px}
 .path{display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.6}
 .path .nm2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -178,6 +181,7 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
 
   <div id="app" hidden>
     <div class="recs" id="recs"></div>
+    <div id="calib"></div>
     <div id="qbwarn"></div>
     <div class="strip" id="rosterstrip"></div>
     <div class="cards" id="cards"></div>
@@ -417,6 +421,64 @@ function survival(adp, reach, pick, current){
   return Math.max(0, Math.min(1, pAlive(adp, reach, pick) / now));
 }
 
+/* ------------------------------------------------------------- cost of waiting */
+/* VORP measures value against a freely available player. That is the wrong
+   baseline in a 45 round draft with 26 bench spots: with 390 defenders clearing
+   the floor for 108 starting slots you are never actually forced down to the
+   45th linebacker. What a pick really costs you is the gap between this player
+   and the best one at his position still on the board when you next choose.
+
+   Expected best survivor, walking the position from the top: each player is the
+   best available only if he survives and everyone better does not. Falls back to
+   replacement in the tail where nobody survives. */
+/* For a pool sorted best first, fallback[i] is the expected best player still
+   there at your next pick from position i onward. Backward recurrence: the man
+   at i is the best if he survives, otherwise you fall through to the rest.
+      E[i] = o[i]*s[i] + (1 - s[i]) * E[i+1],  E[end] = replacement
+   Each player is then measured against fallback[i+1], the best you could get at
+   his position later having passed on him and everyone above him. Measuring
+   against the whole pool instead would let a flat position cluster near zero
+   and float to the top of the board, which is the opposite of the truth. */
+function fallbacks(pool, repl){
+  const e = new Array(pool.length + 1);
+  e[pool.length] = repl;
+  for(let i = pool.length - 1; i >= 0; i--){
+    const s = pool[i].s1 == null ? 0 : pool[i].s1;
+    e[i] = pool[i].o * s + (1 - s) * e[i + 1];
+  }
+  return e;
+}
+
+/* Attach "what taking him now gains you over waiting" to every live player.
+   Steep positions score high because the fall is real. Flat, deep positions
+   score near zero because the room hands you a near identical player later,
+   which is what pushes defence down the board without any invented constant. */
+function costOfWaiting(){
+  const p1 = MY_PICKS.find(n => n > made) || null;
+  /* No next pick means waiting is not an option, so there is nothing to measure
+     against. Rather than let every drop-off silently collapse to zero on the
+     final pick, the column is withdrawn and the board falls back to VORP, which
+     is the correct question when this is the last selection you make. */
+  if(!p1 || !META.R){ ROWS.forEach(r => r.now = null); return {mode:"none", p1:null, calib:[]}; }
+  const calib = [];
+  for(const b of OFF.concat(DEF)){
+    const pool = ROWS.filter(r => r.p === b && !taken.has(r.id)).sort((x,y) => y.o - x.o);
+    if(!pool.length) continue;
+    const e = fallbacks(pool, META.R[b]);
+    /* Two ceilings, take the lower. A pick cannot be worth more than the player
+       is over a freely available one (VORP), nor more than you forfeit by not
+       taking him now (the fallback gap). Without the VORP ceiling anyone sitting
+       above a cliff scores high no matter how ordinary he is: the 35th
+       quarterback tops the board purely because the 36th is dreadful. Without
+       the fallback ceiling you are back to VORP and defence floats. */
+    pool.forEach((r,i) => r.now = +Math.min(r.v, r.o - e[i + 1]).toFixed(2));
+    calib.push({p:b, best:pool[0], later:+e[1].toFixed(1),
+                loss:+(pool[0].o - e[1]).toFixed(1), depth:pool.length});
+  }
+  ROWS.forEach(r => { if(taken.has(r.id)) r.now = null; });
+  return {mode:"live", p1, calib};
+}
+
 /* --------------------------------------------------------------- my roster */
 /* Fill my own players into the 19 starting slots, best first, dedicated before
    flex, so the holes that show are real holes. */
@@ -484,6 +546,16 @@ function buildRows(P, proj, prior, scoring, future){
     if(o < 4) continue;
     const isOff = OFF.includes(b);
 
+    /* How much of a defender's score rests on stats Sleeper never projects and
+       we inferred from his 2025 per-tackle rate. This is model risk, not
+       measurement, and it is very unevenly spread across the three positions. */
+    let bf = null;
+    if(!isOff && ag >= 6 && o > 0){
+      const bare = Object.assign({}, s);
+      for(const k of ["idp_pass_def","idp_tkl_loss","idp_qb_hit"]) delete bare[k];
+      bf = +Math.max(0, (o - score(bare, b, scoring) / gp) / o).toFixed(3);
+    }
+
     out.push({
       id, n:nm, p:b, t:tm || "FA", a:age, exp,
       adp: pickAdp(pj, isOff),
@@ -492,6 +564,7 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
+      bf,
       f: future[id] != null ? future[id] : null,
       es: null,
       reach: reachFor(exp, age)
@@ -552,8 +625,14 @@ function analyse(rows, slots, teams){
     const m = median(rows.filter(r => r.p === b && r.b != null).map(r => r.b));
     return m == null ? null : Math.round(m);
   };
+  /* Share of score resting on the backfill, averaged per defensive position. */
+  const bfMean = b => {
+    const v = rows.filter(r => r.p === b && r.bf != null).map(r => r.bf);
+    return v.length ? Math.round(100 * v.reduce((a,c) => a + c, 0) / v.length) : null;
+  };
   return {R, starts, dry, med: med ? +((med - 1) * 100).toFixed(1) : null,
-          te:posMed("TE"), qb:posMed("QB"), rb:posMed("RB"), wr:posMed("WR")};
+          te:posMed("TE"), qb:posMed("QB"), rb:posMed("RB"), wr:posMed("WR"),
+          bf:{DL:bfMean("DL"), LB:bfMean("LB"), DB:bfMean("DB")}};
 }
 
 /* ------------------------------------------------------------- data access */
@@ -689,6 +768,15 @@ function columns(){
     tip:"ESPN's projection scored the same way, as a second opinion. Display only: it never touches Ours, VORP or any ranking.",
     cell:r => `<span class="fl">${fmt(r.es)}</span>`});
   cols.push(
+    {k:"now", h:"Now",
+      tip:"Cost of waiting. NOT the default ranking yet, because it does not pass the sanity anchors. What you gain by taking him on this pick instead of taking the best player left at his position when you next choose. VORP asks how much better than free he is; this asks what you actually lose by waiting, which is the draft decision. Steep positions score high, flat and deep ones score near zero because the room hands you a near identical player later.",
+      title:r => r.now == null ? "No next pick to measure against"
+        : `Taking him now gains ${fmt(r.now,2)} ppg over the best ${r.p} expected to survive to your next pick`,
+      cell:r => {
+        if(r.now == null) return '<span class="fl">—</span>';
+        const c = r.now >= 2 ? "up" : r.now <= 0.25 ? "fl" : "";
+        return `<span class="b ${c}">${fmt(r.now,2)}</span>`;
+      }},
     {k:"v",  h:"VORP",
       tip:"Points per game above replacement at his own position. Replacement is the best player you could get for free once all 12 teams have filled every starting slot, computed live at QB " +
           (META.R ? `${META.R.QB}, RB ${META.R.RB}, WR ${META.R.WR}, TE ${META.R.TE}` : "19.9, RB 14.0, WR 14.1, TE 14.2") +
@@ -751,6 +839,8 @@ function render(){
     r.s1 = survival(r.adp, r.reach, p1, cur);
     r.s2 = survival(r.adp, r.reach, p2, cur);
   });
+  const drop = costOfWaiting();      // needs s1, so it runs after survival
+  renderCalib(drop);
 
   const cols = columns();
   /* The column set changes as the draft moves and as ESPN comes and goes, so a
@@ -939,6 +1029,53 @@ function renderRecs(){
   $("recs").innerHTML = bpaBox + ourBox + pathBox;
 }
 
+/* The calibration behind the ranking, shown rather than asserted: what is on the
+   board at each position now, what is expected to survive to your next pick, and
+   the gap between them, which is the drop-off the whole ordering rests on. */
+function renderCalib(drop){
+  if(drop.mode !== "live"){
+    $("calib").innerHTML =
+      `<div class="strip"><h3>Cost of waiting</h3><div class="mine">` +
+      `No pick after this one, so there is nothing to measure waiting against. ` +
+      `The <b>Now</b> column is withdrawn rather than collapsed to zero, and the board ` +
+      `falls back to VORP, which is the right question when this is your last selection.` +
+      `</div></div>`;
+    return;
+  }
+  const rows = drop.calib.sort((a,b) => b.loss - a.loss).map(c => {
+    const [fg,bg] = PC[c.p];
+    const hot = c.loss >= 4 ? "up" : c.loss <= 1 ? "fl" : "";
+    return `<tr><td class="l"><span class="p" style="color:${fg};background:${bg}">${c.p}</span></td>` +
+      `<td class="l">${esc(c.best.n)}</td><td>${fmt(c.best.o)}</td>` +
+      `<td class="fl">${fmt(c.later)}</td>` +
+      `<td class="b ${hot}">${fmt(Math.max(0, c.loss))}</td>` +
+      `<td class="fl">${c.depth}</td></tr>`;
+  }).join("");
+
+  /* Sanity anchors: on independently confirmed season VORP the best linebacker
+     is worth about half the best running back, so defenders belong outside the
+     top 20 and around fifteen of them inside the top 100. */
+  const order = ROWS.filter(r => r.now != null).sort((a,b) => b.now - a.now);
+  const inTop = n => order.slice(0, n).filter(r => DEF.includes(r.p)).length;
+  const d20 = inTop(20), d50 = inTop(50), d100 = inTop(100);
+  const bad = d20 > 0 || d50 > 4 || d100 > 25 || d100 < 5;
+  const first = order.findIndex(r => DEF.includes(r.p)) + 1;
+
+  $("calib").innerHTML =
+    `<div class="strip"><h3>Cost of waiting &middot; measured against your pick #${drop.p1}</h3>` +
+    `<table class="calib"><thead><tr><th class="l">Pos</th><th class="l">Best on the board now</th>` +
+    `<th>ppg</th><th>expected at #${drop.p1}</th><th>you lose by waiting</th><th>left</th></tr></thead>` +
+    `<tbody>${rows}</tbody></table>` +
+    `<div class="mine" style="margin-top:9px">` +
+    `<b>Sanity anchors.</b> First defender lands at <b>#${first || "none"}</b>. ` +
+    `Defenders inside the top 20: <b>${d20}</b>, top 50: <b>${d50}</b>, top 100: <b>${d100}</b>. ` +
+    (bad ? `<span style="color:var(--dn)">Outside the healthy range of none in the top 20, ` +
+           `one or two in the top 50 and roughly fifteen in the top 100. Treat the ordering ` +
+           `with suspicion.</span>`
+         : `<span style="color:var(--up)">Within the expected range.</span>`) +
+    `</div></div>`;
+}
+
 function renderRoster(){
   if(!ROWS.length || !META.R) return;      // the 45s poll can beat the first build
   const slots = META.slots || {};
@@ -990,7 +1127,7 @@ function renderStatic(){
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
-    `<b>Sleeper never projects pass defended, TFL or QB hits.</b> They are scaled from each player's 2025 per-tackle rate. Pass defended is worth 3 points and a large share of DB scoring, so this materially moves the defensive board. Players with under 8 games in 2025 carry a <span class="thin">!</span> — treat their defensive number as unreliable.`,
+    `<b>Sleeper never projects pass defended, TFL or QB hits.</b> They are scaled from each player's 2025 per-tackle rate, so that share of a defender's score is inferred rather than projected. It is very unevenly spread: <b>DL ${META.bf.DL}%</b> of score, <b>DB ${META.bf.DB}%</b>, <b>LB ${META.bf.LB}%</b>, measured live on the current board. Defensive linemen therefore carry the most model risk of anyone here, and a DL number should be trusted least. Players with under 8 games in 2025 carry a <span class=\"thin\">!</span> on top of that, because the rate itself is then unreliable.`,
     `<b>The 2025 column is not strictly comparable to Ours.</b> Sleeper's actuals include the yardage bonuses; the projections cannot, so 2025 reads slightly high against a projection for the same player.`,
     `<b>Return yards are never projected</b> for anyone. Prorated from 2025 actuals and priced by the league's own rate.`,
     `<b>Offensive and defensive ADP are not the same currency.</b> Offence uses <code>adp_dynasty_2qb</code>, Sleeper's dynasty superflex ADP. Defenders have no dynasty ADP published anywhere, so they fall back to <code>adp_idp</code>, which is redraft-flavoured and a much thinner signal. Defensive ADP values are shown in amber for that reason, and their survival numbers inherit the same weakness.`,
