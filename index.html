@@ -130,6 +130,10 @@ tr.own:hover{background:var(--upbg)}
 .gl{font-size:10px;color:var(--faint);margin-left:5px;letter-spacing:.05em;text-transform:uppercase}
 .gl.you{color:var(--up);font-weight:600}
 .thin{color:var(--hot);font-weight:700;cursor:help;margin-left:3px}
+.mech{font-size:9px;font-weight:700;letter-spacing:.06em;padding:1px 4px;border-radius:3px;
+  margin-left:5px;cursor:help;vertical-align:1px}
+.mech.mr{color:var(--rb);background:var(--rbb)}
+.mech.mc{color:var(--wr);background:var(--wrb)}
 .rk{color:var(--faint);font-size:12px}
 .p{display:inline-block;min-width:19px;text-align:center;font-size:11px;font-weight:600;
   padding:1px 5px;border-radius:4px}
@@ -588,11 +592,25 @@ function buildRows(P, proj, prior, scoring, future){
     /* How much of a defender's score rests on stats Sleeper never projects and
        we inferred from his 2025 per-tackle rate. This is model risk, not
        measurement, and it is very unevenly spread across the three positions. */
-    let bf = null;
-    if(!isOff && ag >= 6 && o > 0){
-      const bare = Object.assign({}, s);
-      for(const k of ["idp_pass_def","idp_tkl_loss","idp_qb_hit"]) delete bare[k];
-      bf = +Math.max(0, (o - score(bare, b, scoring) / gp) / o).toFixed(3);
+    let bf = null, app = null, hid = null, hidPct = null, mech = null;
+    if(!isOff){
+      /* What every other manager sees. The raw Sleeper payload scored under the
+         league rules with no backfill whatsoever, because Sleeper's projection
+         simply has no idp_pass_def, idp_tkl_loss or idp_qb_hit fields. */
+      app = +(score(pj, b, scoring) / gp).toFixed(2);
+      /* What those three missing stats are actually worth, at 3, 2 and 1 point. */
+      const missing = {idp_pass_def:s.idp_pass_def || 0, idp_tkl_loss:s.idp_tkl_loss || 0,
+                       idp_qb_hit:s.idp_qb_hit || 0};
+      hid = +(score(missing, b, scoring) / gp).toFixed(2);
+      const trueScore = app + hid;
+      hidPct = trueScore > 0 ? Math.round(100 * hid / trueScore) : null;
+      if(o > 0) bf = +Math.max(0, hid / o).toFixed(3);
+      /* Which mechanism is doing the hiding. Edge rushers are buried by QB hits
+         and TFL, corners by pass defended. */
+      const rush = (missing.idp_qb_hit * (scoring.idp_qb_hit || 0)) +
+                   (missing.idp_tkl_loss * (scoring.idp_tkl_loss || 0));
+      const cov = missing.idp_pass_def * (scoring.idp_pass_def || 0);
+      if(hid > 0.3) mech = rush > cov * 1.3 ? "RUSH" : cov > rush * 1.3 ? "COV" : "BOTH";
     }
 
     out.push({
@@ -603,7 +621,7 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
-      bf,
+      bf, app, hid, hidPct, mech,
       f: future[id] != null ? future[id] : null,
       es: null,
       reach: reachFor(exp, age)
@@ -628,10 +646,22 @@ function analyse(rows, slots, teams){
      in isolation. Only the deviation from the median says who the rulebook
      actually favours. */
   const med = median(rows.filter(r => r.s > 3).map(r => r.o / r.s));
+  /* Defenders have no PPR baseline, so Boost and vs med would be blank for half
+     the board. The better baseline for them is what the Sleeper app shows: the
+     same two columns carry hidden value instead, measured against the median
+     for their own position because the three differ enormously. */
+  const hidMed = {};
+  for(const b2 of DEF){
+    const v = rows.filter(r => r.p === b2 && r.hidPct != null).map(r => r.hidPct);
+    hidMed[b2] = median(v);
+  }
   rows.forEach(r => {
     if(r.s > 3 && med){
       r.b = Math.round((r.o / r.s - 1) * 100);
       r.rel = Math.round(((r.o / r.s) / med - 1) * 100);
+    }else if(r.hidPct != null && hidMed[r.p] != null){
+      r.b = r.hidPct;
+      r.rel = Math.round(r.hidPct - hidMed[r.p]);
     }else{ r.b = null; r.rel = null; }
   });
 
@@ -706,7 +736,7 @@ function analyse(rows, slots, teams){
   };
   return {R, starts, dry, med: med ? +((med - 1) * 100).toFixed(1) : null,
           te:posMed("TE"), qb:posMed("QB"), rb:posMed("RB"), wr:posMed("WR"),
-          bf:{DL:bfMean("DL"), LB:bfMean("LB"), DB:bfMean("DB")}};
+          bf:{DL:bfMean("DL"), LB:bfMean("LB"), DB:bfMean("DB")}, hidMed};
 }
 
 /* ------------------------------------------------------------- data access */
@@ -799,7 +829,11 @@ function columns(){
       const tag = !own ? "" : own.slot === MY_SLOT
         ? '<span class="gl you">yours</span>' : '<span class="gl">drafted</span>';
       const thin = r.thin ? `<span class="thin" title="Only ${r.g25} games in 2025 — the pass defended, TFL and QB hit backfill is unreliable for him">!</span>` : "";
-      return `<span class="nm">${esc(r.n)}</span>${thin}${tag}`;
+      const mech = r.mech && r.mech !== "BOTH"
+        ? `<span class="mech ${r.mech === "RUSH" ? "mr" : "mc"}" title="${r.mech === "RUSH"
+            ? "Hidden by QB hits and TFL, which Sleeper does not project" 
+            : "Hidden by pass defended, which Sleeper does not project"}">${r.mech}</span>` : "";
+      return `<span class="nm">${esc(r.n)}</span>${thin}${mech}${tag}`;
     }},
     {k:"p",   h:"Pos",  cls:"l",
       tip:"Position, and the small number is his rank at that position on this board.",
@@ -828,6 +862,17 @@ function columns(){
         const d = r.adp - r.cadp;
         return `<span class="${d >= 6 ? "up" : d <= -6 ? "dn" : "fl"}">${r.cadp}</span>`;
       }},
+    {k:"app", h:"App",  cls:"h2",
+      tip:"What your leaguemates see. The raw Sleeper projection scored under this league's rules with no backfill at all. Sleeper's payload has no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here, so the number in their draft interface is systematically low. Offence is unaffected and shows a dash.",
+      cell:r => r.app == null ? '<span class="fl">—</span>' : `<span class="fl">${fmt(r.app)}</span>`},
+    {k:"hid", h:"Hidden", cls:"h2",
+      tip:"True minus App, per game: the points the Sleeper app cannot see because it does not project pass defended, TFL or QB hits. This is the edge. The Boost column shows it as a share of true score, and vs med compares that share against the median for his own position.",
+      title:r => r.hid == null ? "" :
+        `App ${fmt(r.app)}, true ${fmt(r.app + r.hid)}, so ${fmt(r.hid)} ppg is invisible to the room` +
+        (r.mech === "RUSH" ? ". Hidden by QB hits and TFL, an edge rusher"
+         : r.mech === "COV" ? ". Hidden by pass defended, a coverage player" : ""),
+      cell:r => r.hid == null ? '<span class="fl">—</span>'
+        : `<span class="b ${r.hid >= 3 ? "up" : ""}">+${fmt(r.hid)}</span>`},
     {k:"s",   h:"PPR",  cls:"h2",
       tip:"Points per game if this league used standard full PPR. A comparison baseline only, it is not what you score.",
       cell:r => `<span class="fl">${fmt(r.s)}</span>`},
@@ -847,6 +892,10 @@ function columns(){
         : `Taking him now gains ${fmt(r.now,2)} ppg over the best ${r.p} expected to survive to your next pick`,
       cell:r => {
         if(r.now == null) return '<span class="fl">—</span>';
+        /* A dash, not 0.00. Zero would read as a computed cost of nothing when
+           it actually means he is certain to still be there, so there is no
+           decision to make. */
+        if(r.s1 != null && r.s1 >= 0.995) return '<span class="fl" title="Certain to last to your next pick, nothing to lose by waiting">—</span>';
         const c = r.now >= 2 ? "up" : r.now <= 0.25 ? "fl" : "";
         return `<span class="b ${c}">${fmt(r.now,2)}</span>`;
       }},
@@ -1211,13 +1260,19 @@ function renderStatic(){
   ).join("");
 
   $("note").innerHTML =
-    `<b>ADP</b> is what the room sees. <b>Our ADP</b> is where he really goes once corrected for ` +
-    `this league's scoring and your dynasty rules, and <b>#</b> ranks it. Green means we take him ` +
-    `earlier than the market, red means we let him slide. <b>VORP</b> is still the value number. ` +
-    `Hover any heading for the maths.`;
+    `<b>ADP</b> is what the room sees, <b>Our ADP</b> where he really goes, <b>#</b> ranks it. ` +
+    `<b>App</b> is the defender's score as it appears in Sleeper, <b>Hidden</b> is what the app ` +
+    `cannot see because it projects no pass defended, TFL or QB hits. Median hidden share: ` +
+    `DL ${META.hidMed.DL}%, LB ${META.hidMed.LB}%, DB ${META.hidMed.DB}%. ` +
+    `<b>Boost</b> carries that share and <b>vs med</b> compares it to his own position. ` +
+    `<span class="mech mr">RUSH</span> hidden by QB hits and TFL, ` +
+    `<span class="mech mc">COV</span> by pass defended. ` +
+    `Backfilled figures are estimates, not published projections: <b>Fut</b> column aside, ` +
+    `check the <b>Hidden</b> tooltip and the amber <span class="thin">!</span> for thin 2025 samples.`;
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
+    `<b>This is the edge, and it is an estimate.</b> Hidden value is backfilled from each player's 2025 per-tackle rate, not projected by anyone. Trust it least where it carries the most weight: median hidden share runs <b>DL ${META.hidMed.DL}%</b>, <b>DB ${META.hidMed.DB}%</b>, <b>LB ${META.hidMed.LB}%</b>, and averaged across the board the backfill is <b>DL ${META.bf.DL}%</b> of score against <b>LB ${META.bf.LB}%</b>. A defensive lineman's number is the most model and the least data.`,
     `<b>Sleeper never projects pass defended, TFL or QB hits.</b> They are scaled from each player's 2025 per-tackle rate, so that share of a defender's score is inferred rather than projected. It is very unevenly spread: <b>DL ${META.bf.DL}%</b> of score, <b>DB ${META.bf.DB}%</b>, <b>LB ${META.bf.LB}%</b>, measured live on the current board. Defensive linemen therefore carry the most model risk of anyone here, and a DL number should be trusted least. Players with under 8 games in 2025 carry a <span class=\"thin\">!</span> on top of that, because the rate itself is then unreliable.`,
     `<b>The 2025 column is not strictly comparable to Ours.</b> Sleeper's actuals include the yardage bonuses; the projections cannot, so 2025 reads slightly high against a projection for the same player.`,
     `<b>Return yards are never projected</b> for anyone. Prorated from 2025 actuals and priced by the league's own rate.`,
