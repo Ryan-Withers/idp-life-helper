@@ -922,6 +922,15 @@ function fit(r){
     const am = ageMult(r.a);
     if(am !== 1){ s *= am; parts.push(["Age", +am.toFixed(2)]); }
   }
+  /* Expected cost of passing. A player certain to survive to your next pick
+     costs you nothing to defer no matter how good he is, which is why the best
+     linebacker drops out of the recommendation while staying high on iADP. No
+     constant invented here: survival is already measured. Left out entirely
+     when he has no ADP, since then there is nothing to condition on. */
+  if(r.s1 != null){
+    const gone = 1 - r.s1;
+    s *= gone; parts.push(["P(gone by then)", +gone.toFixed(2)]);
+  }
   return {score: s, parts};
 }
 
@@ -1275,6 +1284,9 @@ document.querySelectorAll("button[data-f]").forEach(b => b.onclick = () => {
 });
 ["q","hide","yng"].forEach(i => $(i).addEventListener("input", render));
 $("refresh").onclick = () => loadAll();
+
+/* Console hook, for auditing the maths against the live board. */
+window.IDP = {rows:() => ROWS, meta:() => META, fit, recommend, picks:() => MY_PICKS};
 
 loadAll();
 setInterval(poll, POLL_MS);
