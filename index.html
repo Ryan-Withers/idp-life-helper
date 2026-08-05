@@ -265,6 +265,13 @@ const RULES = {
   agePer: 0.030,              // per year either side
   ageMin: 0.85, ageMax: 1.28
 };
+/* Apply a dynasty weight without destroying the ordering below replacement.
+   Multiplying a negative by a bonus makes it less negative, i.e. better, which
+   is backwards. Clamping at zero was worse: it tied every sub-replacement
+   player at exactly 0 and scattered them arbitrarily, which is how a rookie
+   quarterback stash ended up past iADP 300. Dividing keeps the sign, keeps the
+   direction (runway makes a negative less bad) and keeps every player ordered. */
+const weight = (v, m) => m <= 0 ? v : (v > 0 ? v * m : v / m);
 const ageMult = a => {
   const age = a == null ? RULES.ageMid : a;
   return Math.min(RULES.ageMax, Math.max(RULES.ageMin,
@@ -642,7 +649,7 @@ function analyse(rows, slots, teams){
      neutral on purpose, so it excludes the personal terms (need, QB check,
      strike timing) and stays a property of the board rather than your roster.
      Compare it against market ADP to see where the room disagrees with you. */
-  const neutral = r => Math.max(r.v, 0) * (r.f != null ? r.f : ageMult(r.a));
+  const neutral = r => weight(r.v, r.f != null ? r.f : ageMult(r.a));
   rows.slice().sort((a,b) => neutral(b) - neutral(a)).forEach((r,i) => r.iadp = i + 1);
 
   const posMed = b => {
@@ -939,14 +946,15 @@ function render(){
    below-replacement player by a bonus would make him look better, not worse. */
 function fit(r){
   const parts = [];
-  let s = Math.max(r.v, 0);
+  let s = r.v;
   if(r.f != null){
-    s *= r.f; parts.push(["Fut", r.f]);
+    s = weight(s, r.f); parts.push(["Fut", r.f]);
   }else{
     /* No published dynasty value, so nothing has priced his age. */
     const am = ageMult(r.a);
-    if(am !== 1){ s *= am; parts.push(["Age", +am.toFixed(2)]); }
+    if(am !== 1){ s = weight(s, am); parts.push(["Age", +am.toFixed(2)]); }
   }
+  if(s < 0) return {score: s, parts};        // below replacement, urgency is moot
   /* Expected cost of passing. A player certain to survive to your next pick
      costs you nothing to defer no matter how good he is, which is why the best
      linebacker drops out of the recommendation while staying high on iADP. No
