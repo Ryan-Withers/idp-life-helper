@@ -503,12 +503,6 @@ function costOfWaiting(){
      certain to survive scores exactly zero, fall back to ADP. Among players you
      can equally wait on, the one the room takes soonest leads and the one it
      ignores until round 18 sinks, which is where a linebacker belongs. */
-  /* iADP is what your rules say he should go for, so it has to know that a
-     player nobody takes until round 18 is not a round 2 pick however good he
-     is. Same value x P(gone) as Our BPA. Static value stays available as VORP
-     and Fut, which do not move. */
-  ROWS.slice().sort((a,b) => (fit(b).score - fit(a).score) ||
-    ((a.adp == null ? 9999 : a.adp) - (b.adp == null ? 9999 : b.adp))).forEach((r,i) => r.iadp = i + 1);
   ROWS.filter(r => r.now != null)
       .sort((a,b) => (b.now - a.now) || ((a.adp == null ? 9999 : a.adp) - (b.adp == null ? 9999 : b.adp)))
       .forEach((r,i) => r.nrk = i + 1);

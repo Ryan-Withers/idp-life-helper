@@ -217,3 +217,32 @@ The engine moved from `build_board.py` into the page, so there is no longer a ge
 - **Return yards were double-counted for defenders.** The IDP backfill wrote `kr_yd`/`pr_yd` into the stat line and the code then added them again at a hardcoded 0.04. Now written once and priced by the league's own rate.
 - **Drafted players were matched by name.** There are two Byron Murphys in this player pool, a DB in Minnesota and a DL in Seattle; drafting either greyed out both. Now keyed on `player_id`.
 - **The consensus column never worked.** FantasyPros CSVs were scored as season totals while ESPN was scored per game, so the 35%-agreement test could never pass and the column was empty for all 678 players. Dropped in favour of ESPN as a labelled second opinion.
+
+
+---
+
+## Unfinished: replacement level is the root problem
+
+The board currently carries two rankings because one number is wrong at the root.
+
+`VORP` measures value against **replacement level**, defined as the best player available once every league starting slot is filled. That baseline is realistic for offence, where 288 players compete for 120 starting slots. It is fiction for defence, where 390 players compete for 108. You will never be forced down to the 45th linebacker, so the number VORP compares him against does not exist.
+
+Everything downstream inherits it. `iADP` is built on VORP, so defenders sit high on the value board (Devin Lloyd at 20) while the live draft board correctly has them at 200+. That gap between `#` and `iADP` is not a display bug, it is the same error surfacing twice.
+
+The interim fix in place is to leave `iADP` static on pure value and let `#` carry urgency separately. It works, but it means reading two columns and knowing which answers which question.
+
+### The actual fix
+
+Redefine replacement so it means the same thing at every position: **the best player you would realistically still be able to get**, rather than the last league-wide starter. Candidate approaches, in rough order of preference:
+
+1. **Roster-depth replacement.** Teams roster 45 players against 19 starters. Set replacement at a consistent multiple of starters rather than at starters + 1. A steep position's replacement falls a long way when you go deeper; a flat one barely moves. That asymmetry is exactly what is missing, and it is static. Needs a defensible multiple, ideally derived from how many of each position actually get rostered in this league rather than assumed.
+2. **Survival-based replacement**, already built as `Now`. Correct but dynamic, so it cannot back a stable board.
+3. **Calibrate IDP replacement to a stated prior.** Fastest, and an explicit fudge factor that should be labelled as one on the page.
+
+### Before shipping any of them
+
+- Re-run the sanity anchors: no defender inside the top 20, one or two in the top 50, roughly fifteen in the top 100. These describe the **value** board, not the urgency board.
+- Confirm against the independently verified season VORP shape: Bijan 248, Nacua 211, Allen 182, Bowers 178, Devin Lloyd 131, Burns 92, Hamilton 75. The best linebacker is worth about half the best running back.
+- Check Kenneth Walker specifically. He should outrank the linebackers on the live board and that has never been verified, because he is drafted in the test fixture.
+
+Do **not** apply a haircut to IDP projections. Per-stat regression of 2026 projection on 2025 actual shows defensive stats are discounted as hard or harder than offensive ones (solo tackles 0.750, sacks 0.756, assists 0.622, against pass yards 0.883 and rush yards 0.763). The aggregate gap that originally suggested bias was a composition effect from quarterbacks. That idea is dead.
