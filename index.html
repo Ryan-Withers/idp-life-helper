@@ -251,6 +251,7 @@ const FLEX_TAKES = {FLEX:["RB","WR","TE"], WRRB_FLEX:["RB","WR"], "WRRB-FLEX":["
                     REC_FLEX:["WR","TE"], SUPER_FLEX:["QB","RB","WR","TE"],
                     IDP_FLEX:["DL","LB","DB"]};
 const BENCH = new Set(["BN","IR","TAXI"]);
+const BACKFILL_RATE = ["idp_pass_def","idp_tkl_loss","idp_qb_hit"];
 const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
 
 /* Dynasty weighting for Our BPA. Deliberately almost empty.
@@ -276,7 +277,14 @@ const RULES = {
      our own value ranking, anchored on where you read this room taking the
      first defender. 95 is where the analysis landed: the pick at which the best
      linebacker becomes worth more than the best offensive player left. */
-  idpFirstPick: 95
+  idpFirstPick: 95,
+  /* Empirical Bayes shrinkage on the per-tackle rates. A rate off 55 tackles is
+     mostly noise; off 150 it is mostly signal. w = tackles / (tackles + k), so
+     k is the sample size at which a player's own rate and his positional mean
+     carry equal weight. 60 is a prior, not a fit: tuning it properly needs 2025
+     split into halves, and Sleeper's season endpoint serves totals only, so the
+     split would cost 18 weekly pulls on every page load. Stated on the page. */
+  shrinkK: 60
 };
 /* Apply a dynasty weight without destroying the ordering below replacement.
    Multiplying a negative by a bonus makes it less negative, i.e. better, which
@@ -550,10 +558,35 @@ function rosterFill(mine, slots){
   return out;
 }
 
+/* Positional per-tackle rates for the three stats Sleeper never projects,
+   pooled across everyone with a real 2025 sample. These are what a thin sample
+   gets pulled toward. Kept separate per position because a corner's pass
+   defended rate per tackle is nothing like a linebacker's. */
+function leagueRates(P, prior){
+  const acc = {}, out = {};
+  for(const b of DEF) acc[b] = {tkl:0, idp_pass_def:0, idp_tkl_loss:0, idp_qb_hit:0};
+  for(const id in prior){
+    const meta = P[id]; if(!meta) continue;
+    const b = meta[1]; if(!DEF.includes(b)) continue;
+    const ac = prior[id];
+    if((ac.gp || 0) < 8) continue;
+    const tkl = (ac.idp_tkl_solo || 0) + (ac.idp_tkl_ast || 0);
+    if(tkl <= 0) continue;
+    acc[b].tkl += tkl;
+    for(const k of BACKFILL_RATE) acc[b][k] += ac[k] || 0;
+  }
+  for(const b of DEF){
+    out[b] = {};
+    for(const k of BACKFILL_RATE) out[b][k] = acc[b].tkl > 0 ? acc[b][k] / acc[b].tkl : 0;
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ build */
 /* Score every player, twice, on the identical stat line. */
 function buildRows(P, proj, prior, scoring, future){
   const out = [];
+  const LR = leagueRates(P, prior);
   for(const id in proj){
     const meta = P[id]; if(!meta) continue;
     const pj = proj[id];
@@ -562,6 +595,7 @@ function buildRows(P, proj, prior, scoring, future){
 
     const s = Object.assign({}, pj);
     const ac = prior[id] || {}, ag = ac.gp || 0;
+    let w = null, rates = null;      // shrinkage weight and the rates behind it
 
     /* Backfill what Sleeper omits, from the player's own 2025 rate. Never a
        league average — a missing field is a gap in the payload, not a player
@@ -577,8 +611,16 @@ function buildRows(P, proj, prior, scoring, future){
            off the player's own 2025 per-tackle rate. */
         const base = Math.max(1, (ac.idp_tkl_solo||0) + (ac.idp_tkl_ast||0));
         const pt = Math.max(1, (pj.idp_tkl_solo||0) + (pj.idp_tkl_ast||0));
-        for(const k of ["idp_pass_def","idp_tkl_loss","idp_qb_hit","idp_int_ret_yd","idp_fum_ret_yd"])
-          s[k] = (ac[k]||0) / base * pt;
+        /* Shrink each rate toward its positional mean in proportion to sample
+           size, so one loud season off 55 tackles cannot carry a ranking. */
+        w = +(base / (base + RULES.shrinkK)).toFixed(3);
+        rates = {w, raw:{}, lg:{}};
+        for(const k of BACKFILL_RATE){
+          const own = (ac[k] || 0) / base, lg = (LR[b] || {})[k] || 0;
+          rates.raw[k] = +own.toFixed(4); rates.lg[k] = +lg.toFixed(4);
+          s[k] = (w * own + (1 - w) * lg) * pt;
+        }
+        for(const k of ["idp_int_ret_yd","idp_fum_ret_yd"]) s[k] = (ac[k]||0) / base * pt;
         for(const k of ["st_tkl_solo","st_ff","st_fum_rec"]) s[k] = (ac[k]||0) / ag * gp;
       }
       /* Return yards are never projected for anyone. Prorate from 2025 and let
@@ -604,10 +646,15 @@ function buildRows(P, proj, prior, scoring, future){
          unknown rather than zero: reporting zero would show a rookie as having
          no invisible value and drop him dozens of places against peers who
          merely have data. */
+      /* Hidden is everything the app cannot see, not just the three headline
+         stats. Sleeper also projects no special teams tackles, no kick or punt
+         return yards and no interception or fumble return yards. Taking the
+         whole difference guarantees App + Hidden = Ours, which the three-stat
+         version did not: it left a third of the real edge unaccounted for. */
       const missing = ag >= 6
         ? {idp_pass_def:s.idp_pass_def || 0, idp_tkl_loss:s.idp_tkl_loss || 0,
            idp_qb_hit:s.idp_qb_hit || 0} : null;
-      hid = missing ? +(score(missing, b, scoring) / gp).toFixed(2) : null;
+      hid = missing ? +(+o.toFixed(1) - app).toFixed(2) : null;   // against the displayed Ours, so the identity holds on screen
       const trueScore = missing ? app + hid : null;
       if(missing){
         hidPct = trueScore > 0 ? Math.round(100 * hid / trueScore) : null;
@@ -629,7 +676,7 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
-      bf, app, hid, hidPct, mech,
+      bf, app, hid, hidPct, mech, shrinkW:w, rates,
       f: future[id] != null ? future[id] : null,
       es: null,
       reach: reachFor(exp, age)
@@ -895,10 +942,23 @@ function columns(){
       cell:r => r.app == null ? '<span class="fl">—</span>' : `<span class="fl">${fmt(r.app)}</span>`},
     {k:"hid", h:"Hidden", cls:"h2",
       tip:"True minus App, per game: the points the Sleeper app cannot see because it does not project pass defended, TFL or QB hits. This is the edge. The Boost column shows it as a share of true score, and vs med compares that share against the median for his own position.",
-      title:r => r.hid == null ? "" :
-        `App ${fmt(r.app)}, true ${fmt(r.app + r.hid)}, so ${fmt(r.hid)} ppg is invisible to the room` +
-        (r.mech === "RUSH" ? ". Hidden by QB hits and TFL, an edge rusher"
-         : r.mech === "COV" ? ". Hidden by pass defended, a coverage player" : ""),
+      title:r => {
+        if(r.hid == null) return "";
+        let t = `App ${fmt(r.app)} + hidden ${fmt(r.hid)} = ${fmt(r.app + r.hid)}, matching Ours.` +
+          (r.mech === "RUSH" ? " Hidden mostly by QB hits and TFL, an edge rusher."
+           : r.mech === "COV" ? " Hidden mostly by pass defended, a coverage player." : "");
+        if(r.rates){
+          const pct = Math.round(r.rates.w * 100);
+          t += `\n\nRates shrunk toward the ${r.p} mean, weight ${pct}% his own / ${100-pct}% league:`;
+          for(const k of ["idp_pass_def","idp_tkl_loss","idp_qb_hit"]){
+            const nm = k === "idp_pass_def" ? "PD" : k === "idp_tkl_loss" ? "TFL" : "QB hit";
+            t += `\n  ${nm} per tackle: his ${r.rates.raw[k]}, ${r.p} mean ${r.rates.lg[k]}`;
+          }
+          t += `\n\n${pct < 55 ? "Thin sample, this is mostly the league rather than him."
+                                : "Sample large enough that it is mostly his own rate."}`;
+        }
+        return t;
+      },
       cell:r => r.hid == null ? '<span class="fl">—</span>'
         : `<span class="b ${r.hid >= 3 ? "up" : ""}">+${fmt(r.hid)}</span>`},
     {k:"s",   h:"PPR",  cls:"h2",
@@ -1302,6 +1362,8 @@ function renderStatic(){
 
   $("gaps").innerHTML = [
     `<b>The 100 and 200-yard game bonuses cannot be modelled</b> from season projections at all. They are absent from the Ours column and slightly understate high-ceiling players.`,
+    `<b>Small samples are shrunk toward the positional mean.</b> A pass defended rate off 55 tackles is mostly noise, off 150 mostly signal, so each rate is blended: <code>w = tackles / (tackles + ${RULES.shrinkK})</code>, then <code>w x his rate + (1 - w) x the ${"DL/LB/DB"} mean</code>, computed separately per stat and per position because a corner's rate per tackle is nothing like a linebacker's. 55 tackles gives w = 0.48, so he is pulled halfway to average; 150 gives 0.71 and he keeps most of his own. Hover any <b>Hidden</b> cell to see his rate, the positional mean and the weight applied.`,
+    `<b>k = ${RULES.shrinkK} is a prior, not a fit.</b> Tuning it properly means splitting 2025 into halves and testing which k best predicts the second from the first. Sleeper's season endpoint serves totals only, so that split would cost eighteen weekly pulls on every page load. If you want it tuned, it is one constant in <code>RULES.shrinkK</code>.`,
     `<b>This is the edge, and it is an estimate.</b> Hidden value is backfilled from each player's 2025 per-tackle rate, not projected by anyone. Trust it least where it carries the most weight: median hidden share runs <b>DL ${META.hidMed.DL}%</b>, <b>DB ${META.hidMed.DB}%</b>, <b>LB ${META.hidMed.LB}%</b>, and averaged across the board the backfill is <b>DL ${META.bf.DL}%</b> of score against <b>LB ${META.bf.LB}%</b>. A defensive lineman's number is the most model and the least data.`,
     `<b>Sleeper never projects pass defended, TFL or QB hits.</b> They are scaled from each player's 2025 per-tackle rate, so that share of a defender's score is inferred rather than projected. It is very unevenly spread: <b>DL ${META.bf.DL}%</b> of score, <b>DB ${META.bf.DB}%</b>, <b>LB ${META.bf.LB}%</b>, measured live on the current board. Defensive linemen therefore carry the most model risk of anyone here, and a DL number should be trusted least. Players with under 8 games in 2025 carry a <span class=\"thin\">!</span> on top of that, because the rate itself is then unreliable.`,
     `<b>The 2025 column is not strictly comparable to Ours.</b> Sleeper's actuals include the yardage bonuses; the projections cannot, so 2025 reads slightly high against a projection for the same player.`,
