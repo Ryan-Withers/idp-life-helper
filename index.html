@@ -153,6 +153,31 @@ summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0;font-size:
 #calibwrap,#rosterwrap{margin-top:10px}
 summary:hover{color:var(--ink)}
 details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:100ch}
+/* Player card. Deliberately plain: it exists to show the arithmetic. */
+#cardwrap[hidden]{display:none}
+#cardbg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:80}
+#card{position:fixed;z-index:81;top:3vh;left:50%;transform:translateX(-50%);
+  width:min(720px,94vw);max-height:94vh;overflow:auto;background:var(--surf);
+  border:1px solid var(--line2);border-radius:10px;padding:18px 20px}
+#card h2{margin:0;font-size:19px}
+#card .sub2{color:var(--dim);font-size:12px;margin:2px 0 12px}
+#card table{width:100%;font-size:12px;border-collapse:collapse}
+#card td,#card th{padding:3px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+#card th{position:static;background:none;font-size:10px;letter-spacing:.05em;color:var(--faint);cursor:default}
+#card td.l,#card th.l{text-align:left}
+#card tr.tot td{border-top:2px solid var(--line2);border-bottom:none;font-weight:700;padding-top:7px}
+#card .grp{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  padding-top:12px;font-weight:700}
+#card .why2{font-size:11px;color:var(--dim);line-height:1.6;margin-top:14px;
+  border-top:1px solid var(--line);padding-top:10px}
+#card code{font-size:11px}
+.sq{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+.s-sleeper{color:var(--qb)} .bg-sleeper{background:var(--qb)}
+.s-shrunk{color:var(--rb)}  .bg-shrunk{background:var(--rb)}
+.s-prorated{color:var(--te)} .bg-prorated{background:var(--te)}
+.s-rate{color:var(--idp)}   .bg-rate{background:var(--idp)}
+#cardclose{float:right;font-size:12px;padding:2px 9px}
+tbody tr{cursor:pointer}
 footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid var(--line);padding-top:12px;line-height:1.8}
 /* Between the breakpoint and roughly 1100px all 18 columns are still on, so
    tighten the gutters rather than let the page scroll sideways. */
@@ -216,6 +241,8 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
     <div class="scroll">
       <table><thead><tr id="hr"></tr></thead><tbody id="tb"></tbody></table>
     </div>
+
+    <div id="cardwrap" hidden><div id="cardbg"></div><div id="card"></div></div>
 
     <details id="method">
       <summary>Method, and where the data is thin</summary>
@@ -596,6 +623,10 @@ function buildRows(P, proj, prior, scoring, future){
     const s = Object.assign({}, pj);
     const ac = prior[id] || {}, ag = ac.gp || 0;
     let w = null, rates = null;      // shrinkage weight and the rates behind it
+    /* Which stats Sleeper actually projected, and which we filled in. The card
+       colours by this, so nothing we invented can pass itself off as a feed. */
+    const src = {};
+    for(const k in pj) if(typeof pj[k] === "number") src[k] = "sleeper";
 
     /* Backfill what Sleeper omits, from the player's own 2025 rate. Never a
        league average — a missing field is a gap in the payload, not a player
@@ -604,7 +635,7 @@ function buildRows(P, proj, prior, scoring, future){
       if(OFF.includes(b)){
         for(const k of ["pass_att","pass_cmp","pass_td","pass_yd","pass_int","rush_td",
                         "pass_cmp_40p","rush_40p","rec_40p"])
-          if(!(k in s) && k in ac) s[k] = ac[k] / ag * gp;
+          if(!(k in s) && k in ac){ s[k] = ac[k] / ag * gp; src[k] = "prorated"; }
       }else{
         /* Sleeper never projects pass defended, TFL or QB hits. Pass defended is
            3 points and a large share of DB scoring, so this matters. Scale them
@@ -614,18 +645,19 @@ function buildRows(P, proj, prior, scoring, future){
         /* Shrink each rate toward its positional mean in proportion to sample
            size, so one loud season off 55 tackles cannot carry a ranking. */
         w = +(base / (base + RULES.shrinkK)).toFixed(3);
-        rates = {w, raw:{}, lg:{}};
+        rates = {w, n:Math.round(base), raw:{}, lg:{}};
         for(const k of BACKFILL_RATE){
           const own = (ac[k] || 0) / base, lg = (LR[b] || {})[k] || 0;
           rates.raw[k] = +own.toFixed(4); rates.lg[k] = +lg.toFixed(4);
           s[k] = (w * own + (1 - w) * lg) * pt;
+          src[k] = "shrunk";
         }
-        for(const k of ["idp_int_ret_yd","idp_fum_ret_yd"]) s[k] = (ac[k]||0) / base * pt;
-        for(const k of ["st_tkl_solo","st_ff","st_fum_rec"]) s[k] = (ac[k]||0) / ag * gp;
+        for(const k of ["idp_int_ret_yd","idp_fum_ret_yd"]){ s[k] = (ac[k]||0) / base * pt; src[k] = "rate"; }
+        for(const k of ["st_tkl_solo","st_ff","st_fum_rec"]){ s[k] = (ac[k]||0) / ag * gp; src[k] = "prorated"; }
       }
       /* Return yards are never projected for anyone. Prorate from 2025 and let
          the scoring table price them, so the league's own rate is used once. */
-      for(const k of ["kr_yd","pr_yd"]) s[k] = (ac[k]||0) / ag * gp;
+      for(const k of ["kr_yd","pr_yd"]){ s[k] = (ac[k]||0) / ag * gp; src[k] = "prorated"; }
     }
 
     const o = score(s, b, scoring) / gp;
@@ -685,6 +717,7 @@ function buildRows(P, proj, prior, scoring, future){
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
       bf, app, hid, hidPct, mech, shrinkW:w, rates,
+      line:s, src, gp, ag,
       f: future[id] != null ? future[id] : null,
       es: null,
       reach: reachFor(exp, age)
@@ -1097,7 +1130,7 @@ function render(){
   $("tb").innerHTML = rs.slice(0, 400).map(r => {
     const own = taken.get(r.id);
     const cls = own ? (own.slot === MY_SLOT ? "own" : "gone") : "";
-    return `<tr class="${cls}">` + cols.map(c => {
+    return `<tr class="${cls}" data-id="${r.id}">` + cols.map(c => {
       const t = c.title ? c.title(r) : "";
       return `<td class="${c.cls||""}"${t ? ` title="${esc(t)}"` : ""}>${c.cell(r)}</td>`;
     }).join("") + "</tr>";
@@ -1386,6 +1419,111 @@ function renderStatic(){
     `<b>FantasyPros is not wired in.</b> Their free API returns 403 and the CSV export would mean a data file, which this tool deliberately does not have. ESPN is used as a second opinion when their endpoint answers the browser's preflight; when it does not, the column simply is not there.`
   ].map(s => `<li>${s}</li>`).join("");
 }
+
+/* ------------------------------------------------------------- player card */
+const STAT_LABEL = {
+  pass_yd:"Pass yards", pass_td:"Pass TD", pass_int:"Interception", pass_cmp:"Completion",
+  pass_inc:"Incompletion", pass_att:"Pass attempt", pass_2pt:"Pass 2PC", pass_int_td:"Pick six",
+  pass_cmp_40p:"40+ completion", pass_td_40p:"40+ pass TD",
+  rush_yd:"Rush yards", rush_td:"Rush TD", rush_att:"Carry", rush_fd:"Rush first down",
+  rush_2pt:"Rush 2PC", rush_40p:"40+ rush", rush_td_40p:"40+ rush TD",
+  rec:"Reception", rec_yd:"Rec yards", rec_td:"Rec TD", rec_fd:"Rec first down",
+  bonus_rec_te:"TE reception bonus", rec_2pt:"Rec 2PC", rec_40p:"40+ reception",
+  rec_td_40p:"40+ rec TD",
+  fum:"Fumble", fum_lost:"Fumble lost", fum_rec_td:"Fumble rec TD",
+  kr_yd:"Kick return yards", pr_yd:"Punt return yards",
+  st_tkl_solo:"ST solo tackle", st_ff:"ST forced fumble", st_fum_rec:"ST fumble rec", st_td:"ST TD",
+  idp_tkl_solo:"Solo tackle", idp_tkl_ast:"Assist", idp_sack:"Sack", idp_tkl_loss:"TFL",
+  idp_qb_hit:"QB hit", idp_pass_def:"Pass defended", idp_int:"Interception",
+  idp_int_ret_yd:"INT return yards", idp_ff:"Forced fumble", idp_fum_rec:"Fumble recovery",
+  idp_fum_ret_yd:"Fumble return yards", idp_safe:"Safety", idp_blk_kick:"Blocked kick",
+  idp_td:"Defensive TD"
+};
+const SRC_LABEL = {
+  sleeper:"Sleeper projected it",
+  shrunk:"we estimated it, rate shrunk to the positional mean",
+  rate:"we estimated it from his 2025 per-tackle rate",
+  prorated:"we prorated his 2025 per-game rate"
+};
+
+function openCard(id){
+  const r = ROWS.find(x => x.id === id);
+  if(!r) return;
+  const line = r.line || {}, src = r.src || {}, gp = r.gp || 1;
+
+  /* Rebuild the score one line at a time, in exactly the order score() walks the
+     table, so the total on screen is the total the engine used. */
+  const rows = [];
+  for(const k in SC){
+    const m = SC[k];
+    if(!m) continue;
+    let qty;
+    if(k === "pass_inc") qty = Math.max(0, (line.pass_att||0) - (line.pass_cmp||0));
+    else if(k === "bonus_rec_te") qty = r.p === "TE" ? (line.rec||0) : 0;
+    else qty = line[k] || 0;
+    if(!qty) continue;
+    const from = k === "pass_inc" ? (src.pass_att || "sleeper") : (src[k] || "sleeper");
+    rows.push({k, qty, m, pts:qty * m, from});
+  }
+  rows.sort((a,b) => Math.abs(b.pts) - Math.abs(a.pts));
+  const total = rows.reduce((a,x) => a + x.pts, 0);
+  const ours = rows.filter(x => x.from !== "sleeper").reduce((a,x) => a + x.pts, 0);
+
+  const used = [...new Set(rows.map(x => x.from))];
+  const key = used.map(u =>
+    `<span class="s-${u}"><span class="sq bg-${u}"></span>${SRC_LABEL[u]}</span>`).join(" &nbsp; ");
+
+  const body = rows.map(x =>
+    `<tr class="s-${x.from}"><td class="l"><span class="sq bg-${x.from}"></span>${STAT_LABEL[x.k] || x.k}</td>` +
+    `<td>${x.qty.toFixed(x.qty < 10 ? 2 : 1)}</td><td class="fl">x ${x.m}</td>` +
+    `<td>${x.pts.toFixed(1)}</td><td>${(x.pts/gp).toFixed(2)}</td></tr>`).join("");
+
+  let deriv = "";
+  if(r.rates){
+    const pct = Math.round(r.rates.w * 100);
+    const pt = (line.idp_tkl_solo||0) + (line.idp_tkl_ast||0);
+    deriv = `<div class="grp">How the estimated defensive stats were built</div>` +
+      `<table><tr><th class="l">Stat</th><th>his 2025 rate</th><th>${r.p} mean</th>` +
+      `<th>blend</th><th>x proj tackles</th></tr>` +
+      BACKFILL_RATE.map(k => {
+        const bl = r.rates.w * r.rates.raw[k] + (1 - r.rates.w) * r.rates.lg[k];
+        return `<tr><td class="l">${STAT_LABEL[k]}</td><td>${r.rates.raw[k]}</td>` +
+          `<td class="fl">${r.rates.lg[k]}</td><td>${bl.toFixed(4)}</td>` +
+          `<td>${(bl * pt).toFixed(1)}</td></tr>`;
+      }).join("") + `</table>` +
+      `<div class="why2">Blend is <code>w x his rate + (1 - w) x the ${r.p} mean</code>, ` +
+      `with <code>w = ${r.rates.n} tackles in 2025 / (${r.rates.n} + ${RULES.shrinkK}) = ${r.rates.w}</code>, ` +
+      `so this player is <b>${pct}% his own rate and ${100-pct}% the league</b>. ` +
+      `Then multiplied by his ${pt.toFixed(0)} projected tackles. ` +
+      `Sleeper projects none of these three, which is the entire edge.</div>`;
+  }
+
+  $("card").innerHTML =
+    `<button id="cardclose">Close</button>` +
+    `<h2>${esc(r.n)}</h2>` +
+    `<div class="sub2">${r.p}${r.prk} &middot; ${esc(r.t)} &middot; age ${r.a ?? "?"} &middot; ` +
+    `board #${r.iadp} &middot; ${gp} projected games &middot; ${r.ag || 0} games in 2025</div>` +
+    `<div class="why2" style="border:none;margin:0 0 10px;padding:0">${key}</div>` +
+    `<table><tr><th class="l">Stat</th><th>projected</th><th>points each</th>` +
+    `<th>season</th><th>per game</th></tr>${body}` +
+    `<tr class="tot"><td class="l">Total</td><td></td><td></td>` +
+    `<td>${total.toFixed(1)}</td><td>${(total/gp).toFixed(2)}</td></tr></table>` +
+    `<div class="why2"><b>Ours = ${(total/gp).toFixed(2)} ppg</b>, which is ` +
+    `${total.toFixed(1)} season points divided by ${gp} projected games. ` +
+    `Of that, <b>${(ours/gp).toFixed(2)} ppg comes from stats we estimated</b> rather than ones ` +
+    `Sleeper published, which is what the Hidden column reports and what the rest of your ` +
+    `league cannot see.</div>` + deriv;
+
+  $("cardwrap").hidden = false;
+  $("cardclose").onclick = closeCard;
+}
+function closeCard(){ $("cardwrap").hidden = true; }
+$("cardbg").onclick = closeCard;
+addEventListener("keydown", e => { if(e.key === "Escape") closeCard(); });
+$("tb").addEventListener("click", e => {
+  const tr = e.target.closest("tr");
+  if(tr && tr.dataset.id) openCard(tr.dataset.id);
+});
 
 /* -------------------------------------------------------------------- poll */
 function setFeed(state, text){
