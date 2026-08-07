@@ -673,6 +673,14 @@ function buildRows(P, proj, prior, scoring, future){
       adp: pickAdp(pj, isOff),
       o: +o.toFixed(1),
       s: isOff ? +(score(s, b, PPR) / gp).toFixed(1) : null,
+      /* Display only, deliberately kept out of s. Offence gets standard full PPR
+         on the same stat line. Defenders have no PPR categories at all, so the
+         comparable figure is the one Sleeper itself publishes under its own
+         default IDP scoring. Keeping it separate matters: s gates the rules edge
+         and the league median, and letting defenders into either would corrupt
+         both. */
+      ppr: isOff ? +(score(s, b, PPR) / gp).toFixed(1)
+                 : (pj.pts_ppr != null && gp ? +(pj.pts_ppr / gp).toFixed(1) : null),
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
@@ -961,9 +969,12 @@ function columns(){
       },
       cell:r => r.hid == null ? '<span class="fl">—</span>'
         : `<span class="b ${r.hid >= 3 ? "up" : ""}">+${fmt(r.hid)}</span>`},
-    {k:"s",   h:"PPR",  cls:"h2",
-      tip:"Points per game if this league used standard full PPR. A comparison baseline only, it is not what you score.",
-      cell:r => `<span class="fl">${fmt(r.s)}</span>`},
+    {k:"ppr", h:"PPR",  cls:"h2",
+      tip:"Comparison baseline only, never what you score. Offence is standard full PPR run on the same stat line. Defenders have no PPR categories at all, so this is the points per game Sleeper itself publishes under its own default IDP scoring: a third rulebook again, useful as rough context rather than a like-for-like number.",
+      title:r => r.ppr == null ? "No PPR figure published for him"
+        : OFF.includes(r.p) ? "Standard full PPR on the same projection"
+        : "Sleeper's own pts_ppr, under its default IDP scoring rather than ours",
+      cell:r => `<span class="fl">${fmt(r.ppr)}</span>`},
     {k:"o",   h:"Ours", tip:"Points per game under this league's actual scoring settings, pulled live and applied to his 2026 projection.",
       cell:r => `<span class="b">${fmt(r.o)}</span>`},
     {k:"a25", h:"2025", cls:"h2",
