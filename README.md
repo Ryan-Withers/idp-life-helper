@@ -82,8 +82,23 @@ One honest caveat, stated in the box whenever it decides the call: **the market 
 - **Prompts you for the third quarterback** without being asked, because superflex starts 24 of them league-wide and you forget every year.
 - **Survival columns** for your next two picks, labelled with the actual pick numbers.
 - **League view**, one row per team, showing where every roster in the league actually stands. See below.
-- **Every column pivots.** All 18 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
+- **Every column pivots.** All 21 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
+- **Nothing is hidden on a phone.** Every column is present at every width. See below.
 - If the draft feed drops the board keeps working and says the feed is offline rather than blanking.
+
+### Responsive layout
+
+**Every column is present at every width.** Nine of them used to be dropped below 900px, so a phone had no 2025, no App, no Hidden, no PPR, no Fut, no Pos±, no Ov±, no Boost and no team. They are all back, and the board earns the room instead:
+
+- **The board is its own scrollport below 1290px**, both axes, capped to whatever height is left under the header and the filter bar. The height cap is the part that matters: a sticky heading row inside a scroller resolves against that scroller, and `overflow-x: auto` computes `overflow-y` to `auto` anyway, so without a cap the box grows to fit its own content, the headings never move relative to it, and they strand mid-table as the page scrolls underneath. That is why the heading row never used to stick on a phone.
+- **The two identity columns pin to the left edge**, `#` at a fixed 34px so `Player` has an offset to stick to. Twenty-one columns without a pin means losing track of which row you are on three columns in. On phones only, `Player` is capped at 132px with an ellipsis, because otherwise the pin eats 244 of the 354px scroller. The `drafted` and `yours` tags clip off the end there, but the row tint and the faded drafted row already carry that signal.
+- **`overscroll-behavior: contain`** on the board, so reaching its bottom does not chain into the page and drag the whole board up under the sticky header. A finger on the board moves the board; the page scrolls from anywhere else.
+- **Every wide panel scrolls itself**, at all widths. Whichever table is widest otherwise sets the layout viewport, and then the whole document scrolls sideways and the sticky header and filter bar come unstuck from the left edge. This was already happening between 901px and roughly 1180px before any of the above, on any window that size.
+- **The header and the filter bar are tightened below 900px.** Both are sticky, so on a 390×844 phone they were costing 406 points of screen before a single row of the board. Nothing is removed, it just stops being laid out for a desktop. The board went from 421 to 467 points tall, and from 12 columns to 21.
+
+The breakpoint is 1290px rather than the measured crossover of 1284, because the board's natural width moves with the longest player name in the feed.
+
+**Verified.** A layout sweep across 14 widths from 360 to 1920, 180 assertions, all passing: no column hidden at any width; the document never scrolls sideways at any width; every wide panel either fits or scrolls itself; below the breakpoint the headings stay at the top of the board and the corner cell at its left edge under a hard scroll in both directions; the pinned columns butt together with no gap or overlap; the pinned cells are opaque so scrolled columns cannot bleed through; the pin never takes more than 55% of the width; scroll containment is on; and above the breakpoint the board needs no scroller and fits.
 
 ---
 

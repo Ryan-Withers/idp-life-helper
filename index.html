@@ -186,16 +186,71 @@ details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:1
 #cardclose{float:right;font-size:12px;padding:2px 9px}
 tbody tr{cursor:pointer}
 footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid var(--line);padding-top:12px;line-height:1.8}
-/* Between the breakpoint and roughly 1100px all 18 columns are still on, so
-   tighten the gutters rather than let the page scroll sideways. */
+/* Any panel that can grow wider than the window gets its own sideways scroller.
+   Without this the widest table in the page sets the layout viewport, the whole
+   document scrolls sideways and the sticky header and filter bar come unstuck
+   from the left edge. Harmless when nothing overflows: no scrollbar appears. */
+#league,#calib,.strip{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* The board wants about 1250px with every column on, so anything narrower than
+   that plus the page gutters has to scroll it rather than the document. The
+   breakpoint is set above the measured crossover of 1284 rather than at it,
+   because the natural width moves with the longest player name in the feed. Note the
+   whole box scrolls, both axes, not just x: overflow-x:auto computes overflow-y
+   to auto anyway, and a sticky heading row inside a scroller resolves against
+   that scroller. Without a height cap the box grows to fit its own content, so
+   the headings never move relative to it and strand mid-table as the page
+   scrolls underneath. Capping the height is what makes them stay put. */
+@media(max-width:1290px){
+  /* contain, so reaching the bottom of the board does not chain into the page
+     and drag the whole board up under the sticky header, taking the headings
+     with it. A finger on the board moves the board; the page scrolls from
+     anywhere else. */
+  .scroll{overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+    max-height:calc(100vh - var(--hdr,66px) - var(--barh,40px) - 16px);
+    border-bottom:1px solid var(--line)}
+  /* dvh where it exists, because 100vh on a phone measures the viewport with the
+     browser chrome collapsed and leaves the last rows under the address bar. */
+  @supports(height:100dvh){
+    .scroll{max-height:calc(100dvh - var(--hdr,66px) - var(--barh,40px) - 16px)}
+  }
+  th{top:0}
+  /* Every column is on at every width, so the two identity columns pin to the
+     left edge. Without the pin you lose track of which row you are on three
+     columns in. Column 1 is fixed width so column 2 has an offset to stick to. */
+  .scroll th:nth-child(1),.scroll td:nth-child(1){position:sticky;left:0;
+    width:34px;min-width:34px;max-width:34px;overflow:hidden}
+  .scroll th:nth-child(2),.scroll td:nth-child(2){position:sticky;left:34px}
+  /* The corner cells pin on both axes, so they outrank the heading row that
+     only pins on one. */
+  .scroll th:nth-child(1),.scroll th:nth-child(2){z-index:21}
+  /* inherit, not a literal colour, so the drafted and yours row tints carry
+     through onto the pinned cells instead of being painted over. */
+  .scroll tbody tr{background:var(--bg)}
+  .scroll td:nth-child(1),.scroll td:nth-child(2){background:inherit;z-index:2}
+}
+/* Tighter gutters below 1100 so there is less to scroll through. */
 @media(max-width:1100px){td,th{padding-left:5px;padding-right:5px}}
 @media(max-width:900px){
-  .h2{display:none}
-  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  /* Not sticky inside the scroller, but still a containing block for the
-     tooltip. top must be reset or relative would honour it and shift the
-     header row 66px down the page. */
-  th{position:relative;top:auto}
+  /* Header and filter bar are both sticky, so on a phone they were costing 406
+     of 844 points of screen before a single row of the board. Tightened rather
+     than removed: nothing here is hidden, it just stops being laid out for a
+     desktop. */
+  header{padding:8px 0 7px}
+  h1{font-size:14px}
+  .sub{font-size:11px}
+  .top{gap:6px}
+  .live{gap:6px 14px}
+  .st .v{font-size:16px}
+  .st .v.sm{font-size:12px}
+  .bar{padding:7px 0 6px;gap:5px}
+  input[type=search]{min-width:110px}
+  /* Capped only on phones, or the two pinned columns eat 244 of the 354px
+     scroller and leave almost nothing to pan the other nineteen through. Long
+     names ellipsis and the drafted and yours tags clip off the end, but the row
+     tint and the faded drafted row already carry that signal without them. */
+  .scroll th:nth-child(2),.scroll td:nth-child(2){
+    max-width:132px;overflow:hidden;text-overflow:ellipsis}
 }
 </style>
 </head>
@@ -984,7 +1039,7 @@ function columns(){
              (alt.length ? `<span class="alt" title="Also eligible at ${alt.join(" and ")}, so he covers more of your nine IDP starting slots">/${alt.join("/")}</span>` : "") +
              `<span class="prk">${r.prk}</span>`;
     }},
-    {k:"t",   h:"Tm",   cls:"l h2", tip:"NFL team. FA means Sleeper lists no team for him.",
+    {k:"t",   h:"Tm",   cls:"l", tip:"NFL team. FA means Sleeper lists no team for him.",
       cell:r => `<span class="fl">${esc(r.t)}</span>`},
     {k:"a",   h:"Age",  tip:"Age. Feeds the Age term in Our BPA, which scores 3% per year either side of 26.",
       cell:r => `<span class="fl">${r.a != null ? r.a : "—"}</span>`},
@@ -1004,10 +1059,10 @@ function columns(){
         const d = r.adp - r.cadp;
         return `<span class="${d >= 6 ? "up" : d <= -6 ? "dn" : "fl"}">${r.cadp}</span>`;
       }},
-    {k:"app", h:"App",  cls:"h2",
+    {k:"app", h:"App",  cls:"",
       tip:"What your leaguemates see. The raw Sleeper projection scored under this league's rules with no backfill at all. Sleeper's payload has no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here, so the number in their draft interface is systematically low. Offence is unaffected and shows a dash.",
       cell:r => r.app == null ? '<span class="fl">—</span>' : `<span class="fl">${fmt(r.app)}</span>`},
-    {k:"hid", h:"Hidden", cls:"h2",
+    {k:"hid", h:"Hidden", cls:"",
       tip:"True minus App, per game: the points the Sleeper app cannot see because it does not project pass defended, TFL or QB hits. This is the edge. The Boost column shows it as a share of true score, and vs med compares that share against the median for his own position.",
       title:r => {
         if(r.hid == null) return "";
@@ -1029,7 +1084,7 @@ function columns(){
       },
       cell:r => r.hid == null ? '<span class="fl">—</span>'
         : `<span class="b ${r.hid >= 3 ? "up" : ""}">+${fmt(r.hid)}</span>`},
-    {k:"ppr", h:"PPR",  cls:"h2",
+    {k:"ppr", h:"PPR",  cls:"",
       tip:"Comparison baseline only, never what you score. Offence is standard full PPR run on the same stat line. Defenders have no PPR categories at all, so this is the points per game Sleeper itself publishes under its own default IDP scoring: a third rulebook again, useful as rough context rather than a like-for-like number.",
       title:r => r.ppr == null ? "No PPR figure published for him"
         : OFF.includes(r.p) ? "Standard full PPR on the same projection"
@@ -1037,11 +1092,11 @@ function columns(){
       cell:r => `<span class="fl">${fmt(r.ppr)}</span>`},
     {k:"o",   h:"Ours", tip:"Points per game under this league's actual scoring settings, pulled live and applied to his 2026 projection.",
       cell:r => `<span class="b">${fmt(r.o)}</span>`},
-    {k:"a25", h:"2025", cls:"h2",
+    {k:"a25", h:"2025", cls:"",
       tip:"What he actually did per game in 2025 under this league's scoring. Reads slightly high against Ours because real stats include the 100 and 200 yard game bonuses that projections cannot.",
       cell:r => `<span class="fl">${fmt(r.a25)}</span>`},
   ];
-  if(espnCount) cols.push({k:"es", h:"ESPN", cls:"h2",
+  if(espnCount) cols.push({k:"es", h:"ESPN", cls:"",
     tip:"ESPN's projection scored the same way, as a second opinion. Display only: it never touches Ours, VORP or any ranking.",
     cell:r => `<span class="fl">${fmt(r.es)}</span>`});
   cols.push(
@@ -1063,22 +1118,22 @@ function columns(){
           (META.R ? `${META.R.QB}, RB ${META.R.RB}, WR ${META.R.WR}, TE ${META.R.TE}` : "19.9, RB 14.0, WR 14.1, TE 14.2") +
           ". Not a comparison against the next player on the board. Measuring everyone against their own free baseline is what makes positions comparable.",
       cell:r => `<span class="b">${fmt(r.v,2)}</span>`},
-    {k:"f",  h:"Fut",  cls:"h2",
+    {k:"f",  h:"Fut",  cls:"",
       tip:"Dynasty value divided by redraft value, square rooted, from FantasyCalc. Above 1.15 means the market sees real runway ahead, below 0.92 means a win-now asset. Blank for defenders because no dynasty IDP values are published.",
       cell:r =>
       r.f == null ? '<span class="fl">—</span>'
       : `<span class="${r.f >= 1.15 ? "up" : r.f <= .92 ? "dn" : "fl"}">${r.f.toFixed(2)}</span>`},
-    {k:"pm", h:"Pos±", cls:"h2",
+    {k:"pm", h:"Pos±", cls:"",
       tip:"Rank change within his own position, and the honest read of whether he gained on his direct peers. Offence moves from standard full PPR to this league's rules. Defence moves from the score the Sleeper app displays to what he is really worth once pass defended, TFL and QB hits are priced. Positive means he climbs his own position group.",
       title:r => r.pP ? `${r.p}${r.pP} → ${r.p}${r.pO} within position` +
         (OFF.includes(r.p) ? ", standard PPR to our rules" : ", Sleeper app to true value") : "",
       cell:r => move(r.pm)},
-    {k:"om", h:"Ov±",  cls:"h2",
+    {k:"om", h:"Ov±",  cls:"",
       tip:"Rank change across his whole side of the ball, offence against offence and defence against defence. Where the board reshuffles: elite tight ends hold their positional rank but jump 12 to 20 spots overall, and the same happens to edge rushers once QB hits and TFL are priced.",
       title:r => r.rP ? `overall ${r.rP} → ${r.rO} across all ` +
         (OFF.includes(r.p) ? "offence" : "defence") : "",
       cell:r => move(r.om)},
-    {k:"b",  h:"Boost", cls:"h2",
+    {k:"b",  h:"Boost", cls:"",
       tip:"Raw scoring inflation, this league against standard PPR. Close to meaningless on its own since the league inflates everyone by about 60%. Use vs med instead.",
       cell:r => r.b == null ? '<span class="fl">—</span>' : r.b + "%"},
     {k:"rel", h:"vs med",
