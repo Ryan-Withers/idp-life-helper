@@ -296,6 +296,9 @@ const BACKFILL_PER_TACKLE = ["idp_pass_def"];
 const BACKFILL_PER_GAME   = ["idp_tkl_loss","idp_qb_hit"];
 const BACKFILL_RATE = BACKFILL_PER_TACKLE.concat(BACKFILL_PER_GAME);
 const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
+/* Short header for the league table, where every slot type gets its own column. */
+const SLOT_COL = {FLEX:"FLX", SUPER_FLEX:"SFLX", IDP_FLEX:"IDP",
+                  WRRB_FLEX:"WR/RB", "WRRB-FLEX":"WR/RB", REC_FLEX:"REC"};
 
 /* Dynasty weighting for Our BPA. Deliberately almost empty.
    No positional tilt: VORP is already points per game under this league's
@@ -578,28 +581,18 @@ function costOfWaiting(){
 }
 
 /* --------------------------------------------------------------- my roster */
-/* Fill my own players into the 19 starting slots, best first, dedicated before
-   flex, so the holes that show are real holes. */
+/* Fill my own players into the 19 starting slots so the holes that show are real
+   holes. Runs the same optimal assignment the league view uses, rather than a
+   second greedy pass of its own: two different fills on one page would sooner or
+   later disagree about how many slots the same roster covers. */
 function rosterFill(mine, slots){
-  const left = {};
-  for(const b of OFF.concat(DEF)) left[b] = mine.filter(r => r.p === b).sort((x,y) => y.o - x.o);
-  const out = [];
-  for(const b of OFF.concat(DEF)){
-    const n = slots[b] || 0;
-    if(n) out.push({slot:b, need:n, got:Math.min(n, left[b].length)});
-    left[b] = left[b].slice(slots[b] || 0);
-  }
-  for(const [slot, takes] of Object.entries(FLEX_TAKES)){
-    const n = slots[slot] || 0;
-    if(!n) continue;
-    let got = 0;
-    for(let i = 0; i < n; i++){
-      let best = null;
-      for(const b of takes) if(left[b].length && (best === null || left[b][0].o > left[best][0].o)) best = b;
-      if(best === null) break;
-      left[best].shift(); got++;
-    }
-    out.push({slot, need:n, got});
+  const {lineup} = lineupFor(mine, slots, META.R || {});
+  const out = [], at = {};
+  for(const x of lineup){
+    if(at[x.slot] == null){ at[x.slot] = out.length; out.push({slot:x.slot, need:0, got:0}); }
+    const e = out[at[x.slot]];
+    e.need++;
+    if(x.r) e.got++;
   }
   return out;
 }
@@ -1456,36 +1449,98 @@ function renderStatic(){
 }
 
 /* ------------------------------------------------------------- league view */
-/* Fill one roster into the real starting slots, best player first, dedicated
-   slots before flex. Uses full eligibility, so a DL/LB can take either. Greedy
-   rather than optimal: a true assignment would be bipartite matching, and with
-   two-position defenders greedy can occasionally leave a slot worse off. Stated
-   in the panel rather than hidden. */
+/* Hungarian algorithm, Jonker-Volgenant form. Minimum-cost perfect matching of
+   n rows onto m >= n columns in O(n^2 m). Returns row -> column, 1-indexed. */
+function hungarian(a, n, m){
+  const INF = Infinity;
+  const u = new Float64Array(n + 1), v = new Float64Array(m + 1);
+  const p = new Int32Array(m + 1), way = new Int32Array(m + 1);
+  for(let i = 1; i <= n; i++){
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Float64Array(m + 1).fill(INF);
+    const used = new Uint8Array(m + 1);
+    do{
+      used[j0] = 1;
+      const i0 = p[j0];
+      let delta = INF, j1 = 0;
+      for(let j = 1; j <= m; j++) if(!used[j]){
+        const cur = a[i0 - 1][j - 1] - u[i0] - v[j];
+        if(cur < minv[j]){ minv[j] = cur; way[j] = j0; }
+        if(minv[j] < delta){ delta = minv[j]; j1 = j; }
+      }
+      for(let j = 0; j <= m; j++){
+        if(used[j]){ u[p[j]] += delta; v[j] -= delta; }
+        else minv[j] -= delta;
+      }
+      j0 = j1;
+    } while(p[j0] !== 0);
+    do{ const j1 = way[j0]; p[j0] = p[j1]; j0 = j1; } while(j0);
+  }
+  const row = new Int32Array(n + 1);
+  for(let j = 1; j <= m; j++) if(p[j]) row[p[j]] = j;
+  return row;
+}
+
+/* Fill one roster into the real starting slots. This is a true assignment, not
+   a greedy pass: greedy fills dedicated slots first, so a DL/LB defender gets
+   consumed by a DL slot and can leave the LB slot with someone far worse.
+
+   Cost is -(BIG + points - streamed), which orders the objective
+   lexicographically. BIG dominates, so every eligible player beats an empty slot
+   and the lineup fills as many slots as the roster legally can. The remainder is
+   what a slot gains over streaming it, which makes the second objective the
+   projected total itself rather than just the points of the players placed.
+   Without that term the assignment is indifferent between putting a lone
+   receiver in the superflex, leaving the flex to stream at 14.2, and putting him
+   in the flex, leaving the superflex to stream at 19.9. */
+const LINEUP_BIG = 1e5;
 function lineupFor(roster, slots, repl){
-  const pool = roster.slice();
-  const take = takes => {
-    let bi = -1, best = -Infinity;
-    pool.forEach((x,i) => {
-      if(x.elig.some(p => takes.includes(p)) && x.o > best){ best = x.o; bi = i; }
-    });
-    return bi >= 0 ? pool.splice(bi,1)[0] : null;
-  };
   const out = [];
+  const push = (slot, takes) => out.push({slot, takes, r:null,
+    /* An empty slot is not zero points: you stream the best freely available body
+       at that position, which is exactly what replacement level measures. */
+    fa: Math.max(...takes.map(p => repl[p] ?? 0))});
   for(const b of OFF.concat(DEF))
-    for(let i = 0; i < (slots[b]||0); i++) out.push({slot:b, takes:[b], r:take([b])});
+    for(let i = 0; i < (slots[b]||0); i++) push(b, [b]);
   for(const [slot, takes] of Object.entries(FLEX_TAKES))
-    for(let i = 0; i < (slots[slot]||0); i++) out.push({slot, takes, r:take(takes)});
-  /* An empty slot is not zero points: you stream the best freely available body
-     at that position, which is exactly what replacement level measures. */
-  for(const x of out)
-    if(!x.r) x.fa = Math.max(...x.takes.map(p => repl[p] ?? 0));
-  return {lineup:out, bench:pool};
+    for(let i = 0; i < (slots[slot]||0); i++) push(slot, takes);
+  const n = out.length, P = roster.length;
+  const seat = new Set();
+  if(n && P){
+    /* m = P + n so every slot always has a private zero-cost column to sit out
+       on, which keeps the matching perfect without ever blocking a player. */
+    const m = P + n, a = [];
+    for(let i = 0; i < n; i++){
+      const row = new Float64Array(m);
+      for(let j = 0; j < P; j++)
+        if(roster[j].elig.some(p => out[i].takes.includes(p)))
+          row[j] = -(LINEUP_BIG + roster[j].o - out[i].fa);
+      a.push(row);
+    }
+    const asg = hungarian(a, n, m);
+    for(let i = 1; i <= n; i++){
+      const j = asg[i] - 1;
+      if(j >= 0 && j < P && a[i - 1][j] < 0){ out[i - 1].r = roster[j]; seat.add(j); }
+    }
+  }
+  return {lineup:out, bench:roster.filter((_,j) => !seat.has(j))};
+}
+
+/* One column per slot type in the order the lineup is built, so the columns are
+   the 19 slots spaced out rather than seven position groups with the flex
+   starters folded back in. Built from the league's real roster_positions. */
+function slotKeys(){
+  const s = META.slots || {};
+  return OFF.concat(DEF).filter(b => s[b] > 0)
+    .concat(Object.keys(FLEX_TAKES).filter(k => s[k] > 0));
 }
 
 function leagueTable(){
   if(!ROWS.length || !META.R) return null;
   const slots = META.slots || {}, repl = META.R;
   const byId = new Map(ROWS.map(r => [r.id, r]));
+  const keys = slotKeys();
   const teams = [];
   for(let sl = 1; sl <= draft.teams; sl++){
     const roster = [];
@@ -1494,17 +1549,15 @@ function leagueTable(){
     const starters = lineup.filter(x => x.r).length;
     const total = lineup.reduce((a,x) => a + (x.r ? x.r.o : x.fa), 0);
     const real = lineup.reduce((a,x) => a + (x.r ? x.r.o : 0), 0);
-    /* Credit each starter to the slot he is actually playing when that slot names
-       a position, and to his own position when it is a flex. Crediting purely by
-       listed position made the LB column read "—" on a team whose two LB slots
-       were filled by DL/LB defenders, which is the opposite of informative. */
-    const byPos = {};
-    for(const b of OFF.concat(DEF)) byPos[b] = 0;
-    for(const x of lineup)
-      if(x.r) byPos[byPos[x.slot] != null ? x.slot : x.r.p] += x.r.o;
+    /* Every slot counts under its own column, replacement filler included, so the
+       columns add up to the headline number rather than to some subset of it. */
+    const bySlot = {};
+    for(const k of keys) bySlot[k] = 0;
+    for(const x of lineup) if(bySlot[x.slot] != null) bySlot[x.slot] += x.r ? x.r.o : x.fa;
+    for(const k of keys) bySlot[k] = +bySlot[k].toFixed(1);
     teams.push({slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
                 starters, slotCount:lineup.length, total:+total.toFixed(1),
-                real:+real.toFixed(1), fa:+(total-real).toFixed(1), byPos, mine:sl === MY_SLOT});
+                real:+real.toFixed(1), fa:+(total-real).toFixed(1), bySlot, mine:sl === MY_SLOT});
   }
   teams.sort((a,b) => b.total - a.total);
   teams.forEach((t,i) => t.rank = i + 1);
@@ -1529,16 +1582,19 @@ function leagueCols(){
      tip:"How much of that total is replacement-level filler for slots the roster cannot fill."},
     {k:"vs",    h:"vs avg",    get:t => t.vsAvg, dir:-1,
      tip:"Projected points per week above or below the league average."}
-  ].concat(OFF.concat(DEF).map(p => ({
-    k:"p:"+p, h:p, get:t => t.byPos[p], dir:-1,
-    tip:`Points per week the ${p} starting slots contribute. Flex starters count under their own position.`
-  })));
+  ].concat(slotKeys().map(s => {
+    const n = (META.slots||{})[s], takes = FLEX_TAKES[s];
+    return {k:"s:"+s, h:SLOT_COL[s] || s, get:t => t.bySlot[s], dir:-1,
+      tip:`${n} ${SLOT_LABEL[s] || s} slot${n === 1 ? "" : "s"}` +
+          (takes ? `, any of ${takes.join("/")}` : "") +
+          `. Empty slots count at replacement level, so every column here adds up to Proj ppg.`};
+  }));
 }
 
 function renderLeague(){
   const L = leagueTable();
   if(!L || !L.teams.length){ $("league").innerHTML = ""; return; }
-  const cols = leagueCols();
+  const cols = leagueCols(), keys = slotKeys();
   const sc = cols.find(c => c.k === LSORT.k) || cols[3];
   const teams = L.teams.slice().sort((a,b) => {
     const x = sc.get(a), y = sc.get(b);
@@ -1555,17 +1611,20 @@ function renderLeague(){
     `<td class="b">${fmt(t.total)}</td>` +
     `<td class="fl">${t.fa > 0 ? fmt(t.fa) : "—"}</td>` +
     `<td class="${t.vsAvg > 0 ? "up" : t.vsAvg < 0 ? "dn" : "fl"}">${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)}</td>` +
-    OFF.concat(DEF).map(p => `<td class="fl">${t.byPos[p] ? fmt(t.byPos[p]) : "—"}</td>`).join("") +
+    keys.map(s => `<td class="${t.lineup.some(x => x.slot === s && !x.r) ? "dn" : "fl"}">` +
+                  `${fmt(t.bySlot[s])}</td>`).join("") +
     `</tr>`).join("");
   $("league").innerHTML =
     `<table class="calib lg" style="width:100%">${head}${body}</table>` +
     `<div class="mine" style="margin-top:9px">League average <b>${fmt(L.avg)}</b> points per week ` +
-    `across the ${L.teams[0].slotCount}-slot lineup, which is ${OFF.concat(DEF).length} positions ` +
-    `and ${(META.slots||{}).IDP_FLEX ? "an IDP flex" : "no IDP flex"}. ` +
-    `Empty slots are filled at replacement level, the best freely available player at that ` +
-    `position, so a thin roster is scored on what it could stream rather than on zero. ` +
-    `The <b>from FA</b> column is how much of a team's total is that filler: high means the ` +
-    `roster is mostly hypothetical. Every column sorts. Click a team for its lineup.</div>`;
+    `across the ${L.teams[0].slotCount}-slot lineup. Every slot type has its own column and all ` +
+    `${keys.length} of them add up to <b>Proj ppg</b> exactly. Empty slots are filled at ` +
+    `replacement level, the best freely available player at that position, so a thin roster is ` +
+    `scored on what it could stream rather than on zero. <b>Any column shown in red is carrying ` +
+    `some of that filler</b>, and <b>from FA</b> is the total of it across the lineup. Lineups ` +
+    `are a true optimal assignment rather than a greedy fill, so the best legal arrangement of a ` +
+    `roster is always the one shown and nobody on the bench outscores a starter he could ` +
+    `legally replace. Every column sorts. Click a team for its lineup.</div>`;
 }
 
 function openTeamCard(slot){
@@ -1596,10 +1655,11 @@ function openTeamCard(slot){
     `<div class="why2">Empty slots score at replacement level rather than zero, on the basis ` +
     `that anyone can stream the best free body at that position. ` +
     `<b>${fmt(t.fa)} of the ${fmt(t.total)}</b> total is that filler. ` +
-    `Lineup fill is greedy by points, dedicated slots before flex, using full position ` +
-    `eligibility, so a DL/LB can take either. Greedy rather than optimal: with two-position ` +
-    `defenders it can occasionally leave a slot marginally worse than a perfect assignment ` +
-    `would.</div>`;
+    `This lineup is a true optimal assignment across all ${t.slotCount} slots, using full ` +
+    `position eligibility so a DL/LB can take either. It fills as many slots as the roster ` +
+    `legally can and then maximises points inside that, which means no rearrangement of these ` +
+    `${t.roster.length} players scores higher and nobody on the bench outscores a starter he ` +
+    `could legally replace.</div>`;
   $("cardwrap").hidden = false;
   $("cardclose").onclick = closeCard;
 }
