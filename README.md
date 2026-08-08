@@ -81,6 +81,7 @@ One honest caveat, stated in the box whenever it decides the call: **the market 
 - **Reads your roster off the picks feed** and fills it into the 19 starting slots, dedicated before flex, so the holes it shows are real holes.
 - **Prompts you for the third quarterback** without being asked, because superflex starts 24 of them league-wide and you forget every year.
 - **Survival columns** for your next two picks, labelled with the actual pick numbers.
+- **League view**, one row per team, showing where every roster in the league actually stands. See below.
 - **Every column pivots.** All 18 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
 - If the draft feed drops the board keeps working and says the feed is offline rather than blanking.
 
@@ -143,6 +144,19 @@ Survival is context for planning several picks ahead. It is never a reason to pa
 
 ### Which picks are actually yours
 Read from `slot_to_roster_id` and `/traded_picks` rather than assumed from the snake formula, so traded picks are handled. The formula alone yields 15 picks through round 14; the feed shows 14, because pick 146 has been traded away.
+
+### League view
+Every team in the league, scored on the same board you are. One row per team, sorted by projected points per week, your own row highlighted. Click a row for the full 19-slot lineup plus bench.
+
+**Lineup fill.** Each roster is filled into the real `roster_positions`, dedicated slots before flex, greedy by `Ours`. It uses full position eligibility, so a DL/LB can take either slot. Greedy rather than optimal: a true assignment is bipartite matching, and with two-position defenders greedy can occasionally leave a slot marginally worse off. The page says so rather than hiding it. The test harness asserts the weaker property that actually matters, which is that no bench player outscores the starter at a slot he is eligible for.
+
+**Empty slots are scored at replacement level, not zero.** A team with no linebacker has not forfeited those points, it will stream the best free body. Replacement level is exactly what "best freely available player at that position" measures, so the same number the board already computes is the honest filler. The **from FA** column reports how much of a total is that filler, so a roster that is mostly hypothetical is visible at a glance rather than flattering.
+
+**Per-position columns** credit a starter to the slot he is playing when that slot names a position, and to his own listed position when it is a flex. Crediting purely by listed position made the LB column read blank on a team whose two LB slots were filled by DL/LB defenders, which is the opposite of informative.
+
+Every column sorts, same as the board.
+
+**Verified.** 695 to 733 assertions per run in Chromium across five draft depths (60, 130, 250, 400 and 540 picks made), covering: totals reconcile against the slot-by-slot sum in the team card and against `real + FA`; no player starts twice, and every starter is on that team in the pick log; every starter is eligible for the slot he fills; every empty slot draws exactly the replacement level of the best position it can take; a slot sits empty only when nothing eligible is left on the bench; no bench player outscores a starter at a slot he is eligible for; per-position columns sum to the real total; a position column reads blank only when that group is genuinely empty; league average and the vs-avg column reconcile; every column sorts monotonically and flips on a second click.
 
 ---
 

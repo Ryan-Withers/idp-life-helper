@@ -79,6 +79,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 table.calib{width:auto;margin-top:2px;font-size:12px}
 table.calib th{position:static;background:none;border-bottom:1px solid var(--line);padding:3px 12px 3px 0;cursor:default;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
 table.calib td{border-bottom:none;padding:3px 12px 3px 0}
+table.calib.lg th{cursor:pointer;user-select:none}
+table.calib.lg th:hover{color:var(--fg)}
+table.calib.lg th.on{color:var(--fg)}
+table.calib.lg tr[data-team]{cursor:pointer}
+table.calib.lg tr[data-team]:hover td{background:var(--surf2)}
 .paths{display:flex;flex-direction:column;gap:3px}
 .path{display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.6}
 .path .nm2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -150,7 +155,9 @@ tr.own:hover{background:var(--upbg)}
   padding:9px 13px;font-size:12px;margin:12px 0 0}
 details{margin-top:20px;font-size:12px;color:var(--dim)}
 summary{cursor:pointer;color:var(--dim);font-weight:600;padding:4px 0;font-size:12px}
-#calibwrap,#rosterwrap{margin-top:10px}
+#calibwrap,#rosterwrap,#leaguewrap{margin-top:10px}
+#league table td,#league table th{padding:3px 8px 3px 0}
+#league tbody tr{cursor:pointer}
 summary:hover{color:var(--ink)}
 details ul{margin:6px 0 0;padding-left:18px} details li{margin:5px 0;max-width:100ch}
 /* Player card. Deliberately plain: it exists to show the arithmetic. */
@@ -214,6 +221,7 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
 
   <div id="app" hidden>
     <div class="recs" id="recs"></div>
+    <details id="leaguewrap"><summary>League: how every team is stacking up</summary><div id="league"></div></details>
     <details id="calibwrap"><summary>Cost of waiting, per position</summary><div id="calib"></div></details>
     <div id="qbwarn"></div>
     <details id="rosterwrap" open><summary>Your roster and holes</summary><div class="strip" id="rosterstrip"></div></details>
@@ -1182,6 +1190,7 @@ function render(){
   /* Recommendations track the pool, not the table filters, but they need the
      survival numbers this function just refreshed. */
   renderRecs();
+  renderLeague();
   stick();
 }
 
@@ -1446,6 +1455,155 @@ function renderStatic(){
   ].map(s => `<li>${s}</li>`).join("");
 }
 
+/* ------------------------------------------------------------- league view */
+/* Fill one roster into the real starting slots, best player first, dedicated
+   slots before flex. Uses full eligibility, so a DL/LB can take either. Greedy
+   rather than optimal: a true assignment would be bipartite matching, and with
+   two-position defenders greedy can occasionally leave a slot worse off. Stated
+   in the panel rather than hidden. */
+function lineupFor(roster, slots, repl){
+  const pool = roster.slice();
+  const take = takes => {
+    let bi = -1, best = -Infinity;
+    pool.forEach((x,i) => {
+      if(x.elig.some(p => takes.includes(p)) && x.o > best){ best = x.o; bi = i; }
+    });
+    return bi >= 0 ? pool.splice(bi,1)[0] : null;
+  };
+  const out = [];
+  for(const b of OFF.concat(DEF))
+    for(let i = 0; i < (slots[b]||0); i++) out.push({slot:b, takes:[b], r:take([b])});
+  for(const [slot, takes] of Object.entries(FLEX_TAKES))
+    for(let i = 0; i < (slots[slot]||0); i++) out.push({slot, takes, r:take(takes)});
+  /* An empty slot is not zero points: you stream the best freely available body
+     at that position, which is exactly what replacement level measures. */
+  for(const x of out)
+    if(!x.r) x.fa = Math.max(...x.takes.map(p => repl[p] ?? 0));
+  return {lineup:out, bench:pool};
+}
+
+function leagueTable(){
+  if(!ROWS.length || !META.R) return null;
+  const slots = META.slots || {}, repl = META.R;
+  const byId = new Map(ROWS.map(r => [r.id, r]));
+  const teams = [];
+  for(let sl = 1; sl <= draft.teams; sl++){
+    const roster = [];
+    for(const [pid, t] of taken) if(t.slot === sl && byId.has(pid)) roster.push(byId.get(pid));
+    const {lineup, bench} = lineupFor(roster, slots, repl);
+    const starters = lineup.filter(x => x.r).length;
+    const total = lineup.reduce((a,x) => a + (x.r ? x.r.o : x.fa), 0);
+    const real = lineup.reduce((a,x) => a + (x.r ? x.r.o : 0), 0);
+    /* Credit each starter to the slot he is actually playing when that slot names
+       a position, and to his own position when it is a flex. Crediting purely by
+       listed position made the LB column read "—" on a team whose two LB slots
+       were filled by DL/LB defenders, which is the opposite of informative. */
+    const byPos = {};
+    for(const b of OFF.concat(DEF)) byPos[b] = 0;
+    for(const x of lineup)
+      if(x.r) byPos[byPos[x.slot] != null ? x.slot : x.r.p] += x.r.o;
+    teams.push({slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
+                starters, slotCount:lineup.length, total:+total.toFixed(1),
+                real:+real.toFixed(1), fa:+(total-real).toFixed(1), byPos, mine:sl === MY_SLOT});
+  }
+  teams.sort((a,b) => b.total - a.total);
+  teams.forEach((t,i) => t.rank = i + 1);
+  const avg = teams.reduce((a,t) => a + t.total, 0) / (teams.length || 1);
+  teams.forEach(t => t.vsAvg = +(t.total - avg).toFixed(1));
+  return {teams, avg:+avg.toFixed(1)};
+}
+
+/* Every column pivots, same as the board. */
+let LSORT = {k:"total", dir:-1};
+function leagueCols(){
+  return [
+    {k:"rank",  h:"#",         get:t => t.rank, dir:1,
+     tip:"Rank by projected points per week. Stays put when you sort by something else."},
+    {k:"name",  h:"Team",      get:t => t.name.toLowerCase(), dir:1, cls:"l",
+     tip:"Click any row for that team's full lineup."},
+    {k:"start", h:"Starters",  get:t => t.starters, dir:-1,
+     tip:"How many of the 19 starting slots the roster can actually fill right now."},
+    {k:"total", h:"Proj ppg",  get:t => t.total, dir:-1,
+     tip:"Sum of Ours across the 19 starting slots, empty slots counted at replacement level."},
+    {k:"fa",    h:"from FA",   get:t => t.fa, dir:-1,
+     tip:"How much of that total is replacement-level filler for slots the roster cannot fill."},
+    {k:"vs",    h:"vs avg",    get:t => t.vsAvg, dir:-1,
+     tip:"Projected points per week above or below the league average."}
+  ].concat(OFF.concat(DEF).map(p => ({
+    k:"p:"+p, h:p, get:t => t.byPos[p], dir:-1,
+    tip:`Points per week the ${p} starting slots contribute. Flex starters count under their own position.`
+  })));
+}
+
+function renderLeague(){
+  const L = leagueTable();
+  if(!L || !L.teams.length){ $("league").innerHTML = ""; return; }
+  const cols = leagueCols();
+  const sc = cols.find(c => c.k === LSORT.k) || cols[3];
+  const teams = L.teams.slice().sort((a,b) => {
+    const x = sc.get(a), y = sc.get(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * LSORT.dir;
+  });
+  const head = `<tr>` + cols.map(c =>
+    `<th class="${c.cls || ""}${LSORT.k === c.k ? " on" : ""}" data-k="${c.k}" title="${esc(c.tip)}">` +
+    `${c.h}${LSORT.k === c.k ? (LSORT.dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("") + `</tr>`;
+  const body = teams.map(t =>
+    `<tr class="${t.mine ? "own" : ""}" data-team="${t.slot}">` +
+    `<td>${t.rank}</td><td class="l"><span class="nm">${esc(t.name)}</span>` +
+    (t.mine ? '<span class="gl you">you</span>' : "") + `</td>` +
+    `<td class="${t.starters < t.slotCount ? "dn" : "up"}">${t.starters}/${t.slotCount}</td>` +
+    `<td class="b">${fmt(t.total)}</td>` +
+    `<td class="fl">${t.fa > 0 ? fmt(t.fa) : "—"}</td>` +
+    `<td class="${t.vsAvg > 0 ? "up" : t.vsAvg < 0 ? "dn" : "fl"}">${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)}</td>` +
+    OFF.concat(DEF).map(p => `<td class="fl">${t.byPos[p] ? fmt(t.byPos[p]) : "—"}</td>`).join("") +
+    `</tr>`).join("");
+  $("league").innerHTML =
+    `<table class="calib lg" style="width:100%">${head}${body}</table>` +
+    `<div class="mine" style="margin-top:9px">League average <b>${fmt(L.avg)}</b> points per week ` +
+    `across the ${L.teams[0].slotCount}-slot lineup, which is ${OFF.concat(DEF).length} positions ` +
+    `and ${(META.slots||{}).IDP_FLEX ? "an IDP flex" : "no IDP flex"}. ` +
+    `Empty slots are filled at replacement level, the best freely available player at that ` +
+    `position, so a thin roster is scored on what it could stream rather than on zero. ` +
+    `The <b>from FA</b> column is how much of a team's total is that filler: high means the ` +
+    `roster is mostly hypothetical. Every column sorts. Click a team for its lineup.</div>`;
+}
+
+function openTeamCard(slot){
+  const L = leagueTable(); if(!L) return;
+  const t = L.teams.find(x => x.slot === slot); if(!t) return;
+  const label = s => SLOT_LABEL[s] || s;
+  const rows = t.lineup.map(x =>
+    `<tr><td class="l fl">${label(x.slot)}</td>` +
+    (x.r
+      ? `<td class="l"><span class="nm">${esc(x.r.n)}</span></td><td class="l fl">${x.r.p}${x.r.prk}</td>` +
+        `<td class="l fl">${esc(x.r.t)}</td><td>${fmt(x.r.o)}</td>`
+      : `<td class="l dn">empty, streamed</td><td class="l fl">${x.takes.join("/")}</td>` +
+        `<td class="l fl">FA</td><td class="dn">${fmt(x.fa)}</td>`) +
+    `</tr>`).join("");
+  const bench = t.bench.slice().sort((a,b) => b.o - a.o).slice(0,14)
+    .map(r => `${esc(r.n)} <span class="fl">${r.p} ${fmt(r.o)}</span>`).join(" &nbsp;·&nbsp; ");
+  $("card").innerHTML =
+    `<button id="cardclose">Close</button>` +
+    `<h2>${esc(t.name)}${t.mine ? " (you)" : ""}</h2>` +
+    `<div class="sub2">rank ${t.rank} of ${L.teams.length} &middot; ${fmt(t.total)} projected ppg &middot; ` +
+    `${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)} vs league average &middot; ` +
+    `${t.starters}/${t.slotCount} slots filled &middot; ${t.roster.length} players rostered</div>` +
+    `<table><tr><th class="l">Slot</th><th class="l">Player</th><th class="l">Pos</th>` +
+    `<th class="l">Tm</th><th>Ours</th></tr>${rows}` +
+    `<tr class="tot"><td class="l">Total</td><td></td><td></td><td></td>` +
+    `<td>${fmt(t.total)}</td></tr></table>` +
+    (bench ? `<div class="grp">Bench, best first</div><div class="why2" style="border:none;padding-top:4px">${bench}</div>` : "") +
+    `<div class="why2">Empty slots score at replacement level rather than zero, on the basis ` +
+    `that anyone can stream the best free body at that position. ` +
+    `<b>${fmt(t.fa)} of the ${fmt(t.total)}</b> total is that filler. ` +
+    `Lineup fill is greedy by points, dedicated slots before flex, using full position ` +
+    `eligibility, so a DL/LB can take either. Greedy rather than optimal: with two-position ` +
+    `defenders it can occasionally leave a slot marginally worse than a perfect assignment ` +
+    `would.</div>`;
+  $("cardwrap").hidden = false;
+  $("cardclose").onclick = closeCard;
+}
+
 /* ------------------------------------------------------------- player card */
 const STAT_LABEL = {
   pass_yd:"Pass yards", pass_td:"Pass TD", pass_int:"Interception", pass_cmp:"Completion",
@@ -1554,6 +1712,18 @@ addEventListener("keydown", e => { if(e.key === "Escape") closeCard(); });
 $("tb").addEventListener("click", e => {
   const tr = e.target.closest("tr");
   if(tr && tr.dataset.id) openCard(tr.dataset.id);
+});
+$("league").addEventListener("click", e => {
+  const th = e.target.closest("th");
+  if(th && th.dataset.k){
+    LSORT = LSORT.k === th.dataset.k
+      ? {k:LSORT.k, dir:-LSORT.dir}
+      : {k:th.dataset.k, dir:(leagueCols().find(c => c.k === th.dataset.k) || {}).dir || -1};
+    renderLeague();
+    return;
+  }
+  const tr = e.target.closest("tr");
+  if(tr && tr.dataset.team) openTeamCard(+tr.dataset.team);
 });
 
 /* -------------------------------------------------------------------- poll */
