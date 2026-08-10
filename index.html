@@ -60,6 +60,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 .strip h3{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
 .slots{display:flex;flex-wrap:wrap;gap:5px}
 .slot{font-size:12px;padding:2px 8px;border-radius:5px;background:var(--surf);border:1px solid var(--line);white-space:nowrap}
+.ledger{margin-top:10px}
+.ledger>summary{font-size:11px;color:var(--dim);cursor:pointer}
+.ledger .grp2{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  margin:9px 0 4px}
 .slot.full{color:var(--up);border-color:transparent;background:var(--upbg)}
 .slot.part{color:var(--hot);border-color:transparent;background:var(--hotbg)}
 .mine{font-size:12px;color:var(--dim);margin-top:8px;line-height:1.7}
@@ -546,21 +550,54 @@ function buildOwners(d, tradedPicks){
   /* Sleeper keys a traded pick by the roster it ORIGINATED from, never by the
      seat and never by the current holder, so round plus original roster is the
      stable identity of a pick through any number of trades. */
-  const moved = new Map();
+  const rows = new Map();
   for(const t of (tradedPicks||[])){
     if(d.season && t.season && String(t.season) !== String(d.season)) continue;
     const from = asRid(t.roster_id), to = asRid(t.owner_id);
     if(from == null || to == null) continue;
-    moved.set(t.round + ":" + from, to);
+    const k = t.round + ":" + from;
+    if(!rows.has(k)) rows.set(k, []);
+    rows.get(k).push({from, to, prev: asRid(t.previous_owner_id)});
   }
   for(let r = 1; r <= d.rounds; r++)
     for(const rid of rosterIds){
       const seat = slotOf[rid];
       if(!seat) continue;
-      const own = moved.has(r + ":" + rid) ? moved.get(r + ":" + rid) : rid;
-      owner.set(pickNo(r, seat, d.teams, d.reversal), own);
+      owner.set(pickNo(r, seat, d.teams, d.reversal),
+                resolveOwner(rows.get(r + ":" + rid), rid));
     }
   return {owner, slotOf};
+}
+
+/* A pick can change hands more than once, and the feed does not promise to hand
+   the hops back in order. Walking previous_owner -> owner from the roster the
+   pick came from resolves a chain of any length regardless of array order. If
+   nothing chains off the origin the feed is reporting current state with an
+   intermediate previous owner, so fall back to the terminal owner: the one who
+   is nobody else's previous owner. Both readings land on the same answer for the
+   ordinary single-hop case. */
+function resolveOwner(rows, origin){
+  if(!rows || !rows.length) return origin;
+  /* Each row is one hop and is consumed at most once. Guarding on the row rather
+     than on the owner is what lets a pick be traded away and traded back: an
+     owner-based guard refuses the return hop and strands the pick with whoever
+     held it in the middle. Consuming rows still terminates, because every step
+     removes one. */
+  const used = new Set();
+  let cur = origin, hops = 0;
+  for(;;){
+    const i = rows.findIndex((x, j) => !used.has(j) && x.prev === cur);
+    if(i < 0) break;
+    used.add(i); cur = rows[i].to; hops++;
+  }
+  /* At least one hop means the walk is authoritative, even when it lands back
+     where it started. No hops means nothing chained off the origin, so the feed
+     is reporting current state with an intermediate previous owner: fall back to
+     the terminal owner, the one who is nobody else's previous owner. */
+  if(hops) return cur;
+  const prev = new Set(rows.map(x => x.prev));
+  const term = [...new Set(rows.map(x => x.to))].filter(o => !prev.has(o));
+  return term.length === 1 ? term[0] : rows[rows.length - 1].to;
 }
 
 /* Falls back to the raw snake formula when the draft endpoint is unavailable,
@@ -1499,6 +1536,32 @@ function renderCalib(drop){
     `</div></div>`;
 }
 
+/* Every pick that changed hands, named. The counts alone tell you something is
+   wrong but not what, and a draft with a lot of trades in it is exactly where a
+   count is not enough to check against memory. */
+function tradeLedger(gainedPicks, lostPicks){
+  if(MY_ROSTER_ID == null) return "";
+  const teamOf = rid => draft.names[draft.slotOf[rid]] || ("roster " + rid);
+  const rdOf = n => Math.ceil(n / draft.teams);
+  const line = (n, other, dir) =>
+    `<span class="slot">#${n} &middot; rd ${rdOf(n)} &middot; ${dir} ${esc(other)}</span>`;
+  const inRows = gainedPicks.map(n => {
+    const seat = slotForPick(n, draft.teams, draft.reversal);
+    return line(n, draft.names[seat] || ("slot " + seat), "from");
+  });
+  const outRows = lostPicks.map(n =>
+    line(n, teamOf(draft.owner.get(n)), "to"));
+  if(!inRows.length && !outRows.length) return "";
+  return `<details class="ledger"><summary>Every pick that changed hands, ` +
+    `${inRows.length} in and ${outRows.length} out</summary>` +
+    (inRows.length ? `<div class="grp2">Picks you gained</div><div class="slots">${inRows.join("")}</div>` : "") +
+    (outRows.length ? `<div class="grp2">Picks you gave up</div><div class="slots">${outRows.join("")}</div>` : "") +
+    `<div class="mine">Read straight off Sleeper's traded-pick feed, both the draft ` +
+    `endpoint and the league one, with multi-hop trades followed through to the ` +
+    `team holding the pick now. If any line here is not a deal you actually made, ` +
+    `the picks and survival columns on this page are built on it and are wrong.</div></details>`;
+}
+
 function renderRoster(){
   if(!ROWS.length || !META.R) return;      // the 45s poll can beat the first build
   const slots = META.slots || {};
@@ -1510,8 +1573,9 @@ function renderRoster(){
   const seatPicks = [];
   for(let r = 1; r <= draft.rounds; r++) seatPicks.push(pickNo(r, MY_SLOT, draft.teams, draft.reversal));
   const seatSet = new Set(seatPicks), mySet = new Set(MY_PICKS);
-  const gained = MY_PICKS.filter(n => !seatSet.has(n)).length;
-  const lost = seatPicks.filter(n => !mySet.has(n)).length;
+  const gainedPicks = MY_PICKS.filter(n => !seatSet.has(n));
+  const lostPicks = seatPicks.filter(n => !mySet.has(n));
+  const gained = gainedPicks.length, lost = lostPicks.length;
   const madeElsewhere = myRoster.filter(r => { const t = taken.get(r.id);
     return t && t.seat != null && t.seat !== MY_SLOT; }).length;
   const trades = MY_ROSTER_ID == null
@@ -1537,7 +1601,8 @@ function renderRoster(){
       ? `<div class="mine">` + myRoster.slice().sort((a,b) => b.v - a.v).map(r =>
           `${esc(r.n)} <span class="pk">${r.p}${r.prk} &middot; board #${r.rk} &middot; ${fmt(r.o)} ppg</span>`)
           .join(" &nbsp;·&nbsp; ") + `</div>`
-      : `<div class="mine">No picks yet.</div>`);
+      : `<div class="mine">No picks yet.</div>`) +
+    tradeLedger(gainedPicks, lostPicks);
 
   /* Superflex needs three usable quarterbacks. Standing reminder, not a nag
      triggered by the roster being short — you asked to be prompted. */
@@ -1991,13 +2056,20 @@ async function loadAll(opts){
     const slots = slotCounts(league.roster_positions);
     draft.teams = league.total_rosters || 12;
 
-    const [P, proj, prior, fcalc, dObj, tp, users] = await Promise.all([
+    const [P, proj, prior, fcalc, dObj, tpDraft, tpLeague, users] = await Promise.all([
       loadPlayers(opts.hardPlayers),
       jget(`https://api.sleeper.app/v1/projections/nfl/regular/${SEASON}`),
       jget(`https://api.sleeper.app/v1/stats/nfl/regular/${PRIOR}`),
       jget("https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1").catch(() => []),
       jget(`https://api.sleeper.app/v1/draft/${draft.id}`).catch(() => null),
+      /* Both traded-pick endpoints, merged. The draft one carries trades made
+         inside the draft room, the league one carries everything traded before
+         it including future seasons. Either can be the only one that knows about
+         a given deal, and a missed deal silently mis-assigns a pick, so this
+         takes the union and lets the season filter and the chain walk sort it
+         out rather than trusting one endpoint to be complete. */
       jget(`https://api.sleeper.app/v1/draft/${draft.id}/traded_picks`).catch(() => []),
+      jget(`https://api.sleeper.app/v1/league/${LEAGUE}/traded_picks`).catch(() => []),
       jget(`https://api.sleeper.app/v1/league/${LEAGUE}/users`).catch(() => [])
     ]);
     PLAYERS = P;
@@ -2018,6 +2090,14 @@ async function loadAll(opts){
         const rid = asRid(draft.slots[String(slot)]);
         if(rid != null) draft.userRoster[uid] = rid;
       }
+    }
+    /* Deduped on the whole row, so a deal both endpoints report is one hop, not
+       two, and the chain walk does not bounce it back and forth. */
+    const seenRow = new Set(), tp = [];
+    for(const t of [].concat(tpDraft||[], tpLeague||[])){
+      const k = [t.season, t.round, t.roster_id, t.previous_owner_id, t.owner_id].join("|");
+      if(seenRow.has(k)) continue;
+      seenRow.add(k); tp.push(t);
     }
     const {owner, slotOf} = buildOwners(draft, tp);
     draft.owner = owner; draft.slotOf = slotOf;
