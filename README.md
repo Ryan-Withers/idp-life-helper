@@ -157,8 +157,25 @@ Reported two ways, because they answer different questions. **Pos±** is within 
 
 Survival is context for planning several picks ahead. It is never a reason to pass on a better player.
 
-### Which picks are actually yours
-Read from `slot_to_roster_id` and `/traded_picks` rather than assumed from the snake formula, so traded picks are handled. The formula alone yields 15 picks through round 14; the feed shows 14, because pick 146 has been traded away.
+### Whose pick is whose
+A pick has two identities and conflating them is the classic way to get a traded draft wrong.
+
+| Field | Means | Moves on a trade |
+|---|---|---|
+| `draft_slot` | the **seat**: which chair the pick is made from, fixed by the draft order | no |
+| `roster_id` | the **team** that owns the pick and gets the player | yes |
+
+Ownership is read off the roster, never the seat. Reading it off the seat credits every traded pick to the manager who sold it, which is exactly what this page used to do: a pick bought out of your seat appeared on your roster, highlighted as yours, counted in your positional holes and placed in your lineup in the league view.
+
+For a pick already made, the pick's own `roster_id` is authoritative because the trade has resolved by the time it is made. `picked_by` mapped through `draft_order` is the fallback, then the ownership map below, then the seat as a last resort. Roster ids are normalised on the way in: Sleeper carries them as numbers in `slot_to_roster_id` and `traded_picks` but as a **string** on a pick object, and one strict comparison against the wrong type makes every pick look like somebody else's.
+
+For a pick not yet made, ownership comes from `slot_to_roster_id` plus `/traded_picks`, keyed by round and the roster the pick **originated** from, which is the stable identity of a pick through any number of trades. That map is the single source of truth for which picks are yours, who is on the clock, and what your survival columns are anchored to. The team on the clock is the pick's owner, and the seat it comes from is named alongside when they differ.
+
+Falling back to the raw snake formula happens only when the draft endpoint is unavailable, and the roster panel says so in amber when it does, because that is the one case where trades cannot be honoured.
+
+**Stated on the page, not assumed.** The roster panel names the team `MY_SLOT` resolves to, its roster id, how many picks came in and went out by trade, and how many of your made picks came from another seat. `MY_SLOT` is a constant; if it is not you, everything on the page about your roster is wrong and this is where you see it.
+
+**Verified.** A fixture with four trades in and out, one wrong-season trade row that must be ignored, picks that carry `roster_id` as a string, picks that carry only `picked_by`, and picks that carry neither. 47 assertions, all passing, including the reported symptom directly: a pick made from your seat by the manager who bought it is attributed to the buyer, is absent from your roster, is not highlighted as yours, and sits on the buyer's row in the league view; a pick you bought is yours despite being made from another seat. Run against the previous logic the same suite fails 20 of them, so it has teeth.
 
 ### League view
 Every team in the league, scored on the same board you are. One row per team, sorted by projected points per week, your own row highlighted. Click a row for the full 19-slot lineup plus bench.

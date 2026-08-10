@@ -405,9 +405,16 @@ const ageMult = a => {
 
 /* ------------------------------------------------------------------- state */
 let ROWS = [], META = {}, SC = null, PLAYERS = {};
-let draft = {id:null, teams:12, rounds:45, reversal:3, slots:{}, order:{}, names:{}};
+let draft = {id:null, teams:12, rounds:45, reversal:3, season:null,
+             slots:{},        // seat -> roster_id, from slot_to_roster_id
+             slotOf:{},       // roster_id -> seat
+             userRoster:{},   // user_id -> roster_id
+             owner:new Map(), // pick number -> owning roster_id, trades applied
+             order:{}, names:{}};
 let MY_PICKS = [], MY_ROSTER_ID = null;
-let taken = new Map();             // player_id -> {slot, pick_no}
+/* player_id -> {rid, slot, seat, pick}. rid and slot are the OWNER, seat is the
+   chair the pick was made from. They differ on every traded pick. */
+let taken = new Map();
 let made = 0, myRoster = [];
 let pos = new Set(), sortKey = "adp", sortDir = 1;
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
@@ -509,28 +516,84 @@ function slotForPick(n, teams, reversal){
   return isForward(round, reversal) ? i : teams - i + 1;
 }
 
-/* Which picks are actually mine, honouring trades. Falls back to the raw snake
-   formula when the draft endpoint is unavailable. */
-function myPicksFrom(d, tradedPicks, mySlot){
+/* Who owns every pick in the draft, honouring trades.
+
+   A pick has two different identities and conflating them is the classic way to
+   get a traded draft wrong. draft_slot is the SEAT: which chair the pick is made
+   from, fixed by the draft order and never moved by a trade. roster_id is the
+   TEAM that owns the pick and gets the player. Trading a pick moves the second
+   and not the first, so reading ownership off the seat credits every traded pick
+   to the manager who sold it.
+
+   This returns pick number -> owning roster_id for the whole draft, which is the
+   one source of truth for whose picks are whose, who is on the clock, and which
+   of your future picks still exist. */
+/* Sleeper is not consistent about the type of a roster id: slot_to_roster_id and
+   traded_picks carry numbers, a pick object carries the same id as a string. One
+   strict comparison against the wrong type and every pick looks like somebody
+   else's, so everything is normalised on the way in. */
+const asRid = v => (v == null || v === "" || isNaN(+v)) ? null : +v;
+
+function buildOwners(d, tradedPicks){
   const slotOf = {}, rosterIds = [];
-  for(const [s, rid] of Object.entries(d.slots||{})){ slotOf[rid] = +s; rosterIds.push(rid); }
-  const myRid = (d.slots||{})[String(mySlot)];
-  if(myRid == null || !rosterIds.length){
+  for(const [s, raw] of Object.entries(d.slots||{})){
+    const rid = asRid(raw);
+    if(rid == null) continue;
+    slotOf[rid] = +s; rosterIds.push(rid);
+  }
+  const owner = new Map();
+  if(!rosterIds.length) return {owner, slotOf};
+  /* Sleeper keys a traded pick by the roster it ORIGINATED from, never by the
+     seat and never by the current holder, so round plus original roster is the
+     stable identity of a pick through any number of trades. */
+  const moved = new Map();
+  for(const t of (tradedPicks||[])){
+    if(d.season && t.season && String(t.season) !== String(d.season)) continue;
+    const from = asRid(t.roster_id), to = asRid(t.owner_id);
+    if(from == null || to == null) continue;
+    moved.set(t.round + ":" + from, to);
+  }
+  for(let r = 1; r <= d.rounds; r++)
+    for(const rid of rosterIds){
+      const seat = slotOf[rid];
+      if(!seat) continue;
+      const own = moved.has(r + ":" + rid) ? moved.get(r + ":" + rid) : rid;
+      owner.set(pickNo(r, seat, d.teams, d.reversal), own);
+    }
+  return {owner, slotOf};
+}
+
+/* Falls back to the raw snake formula when the draft endpoint is unavailable,
+   which is the only case where trades cannot be honoured. */
+function myPicksFrom(d, mySlot){
+  const myRid = asRid((d.slots||{})[String(mySlot)]);
+  if(myRid == null || !d.owner || !d.owner.size){
     const out = [];
     for(let r = 1; r <= d.rounds; r++) out.push(pickNo(r, mySlot, d.teams, d.reversal));
     return [out, null];
   }
-  const moved = new Map();
-  for(const t of (tradedPicks||[])) moved.set(t.round + ":" + t.roster_id, t.owner_id);
   const out = [];
-  for(let r = 1; r <= d.rounds; r++)
-    for(const rid of rosterIds){
-      const owner = moved.has(r + ":" + rid) ? moved.get(r + ":" + rid) : rid;
-      if(owner === myRid && slotOf[rid]) out.push(pickNo(r, slotOf[rid], d.teams, d.reversal));
-    }
+  for(const [n, rid] of d.owner) if(rid === myRid) out.push(n);
   out.sort((a,b) => a - b);
   return [out, myRid];
 }
+
+/* Which team a made pick actually belongs to. The pick's own roster_id is
+   authoritative because the trade has already resolved by the time it is made;
+   picked_by and the ownership map are fallbacks for drafts that do not carry
+   one, and the seat is the last resort. */
+function ownerOf(p){
+  const direct = asRid(p.roster_id);
+  if(direct != null) return direct;
+  if(p.picked_by && draft.userRoster[p.picked_by] != null) return draft.userRoster[p.picked_by];
+  const byMap = draft.owner && draft.owner.get(p.pick_no);
+  if(byMap != null) return byMap;
+  return asRid((draft.slots||{})[String(p.draft_slot)]);
+}
+const slotOfRoster = rid => (rid != null && draft.slotOf[rid]) || null;
+/* One definition of "mine", by roster rather than by seat, so a pick I traded
+   away is not mine and a pick I traded for is. */
+const isMine = t => t && (MY_ROSTER_ID != null ? t.rid === MY_ROSTER_ID : t.slot === MY_SLOT);
 
 /* ---------------------------------------------------------------- survival */
 /* This room reaches for youth, not for position. Age leads because the age
@@ -1019,7 +1082,7 @@ function columns(){
       tip:"An amber ! means under 8 games in 2025, so his pass defended, TFL and QB hit backfill is unreliable.",
       cell:r => {
       const own = taken.get(r.id);
-      const tag = !own ? "" : own.slot === MY_SLOT
+      const tag = !own ? "" : isMine(own)
         ? '<span class="gl you">yours</span>' : '<span class="gl">drafted</span>';
       const thin = r.thin ? `<span class="thin" title="Only ${r.g25} games in 2025 — the pass defended, TFL and QB hit backfill is unreliable for him">!</span>` : "";
       const mech = r.mech && r.mech !== "BOTH"
@@ -1211,7 +1274,7 @@ function render(){
 
   $("tb").innerHTML = rs.slice(0, 400).map(r => {
     const own = taken.get(r.id);
-    const cls = own ? (own.slot === MY_SLOT ? "own" : "gone") : "";
+    const cls = own ? (isMine(own) ? "own" : "gone") : "";
     return `<tr class="${cls}" data-id="${r.id}">` + cols.map(c => {
       const t = c.title ? c.title(r) : "";
       return `<td class="${c.cls||""}"${t ? ` title="${esc(t)}"` : ""}>${c.cell(r)}</td>`;
@@ -1441,8 +1504,31 @@ function renderRoster(){
   const slots = META.slots || {};
   const fill = rosterFill(myRoster, slots);
   const label = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
+  /* Trades are the thing most likely to be silently wrong here, so say out loud
+     what the feed is being read as rather than leaving it to be discovered when
+     somebody else's pick shows up on your roster. */
+  const seatPicks = [];
+  for(let r = 1; r <= draft.rounds; r++) seatPicks.push(pickNo(r, MY_SLOT, draft.teams, draft.reversal));
+  const seatSet = new Set(seatPicks), mySet = new Set(MY_PICKS);
+  const gained = MY_PICKS.filter(n => !seatSet.has(n)).length;
+  const lost = seatPicks.filter(n => !mySet.has(n)).length;
+  const madeElsewhere = myRoster.filter(r => { const t = taken.get(r.id);
+    return t && t.seat != null && t.seat !== MY_SLOT; }).length;
+  const trades = MY_ROSTER_ID == null
+    ? ` &middot; <span style="color:var(--hot)">draft feed unavailable, picks assumed from the snake order and trades not applied</span>`
+    : (gained || lost)
+      ? ` &middot; ${gained} in, ${lost} out by trade` +
+        (madeElsewhere ? ` &middot; ${madeElsewhere} made from another seat` : "")
+      : ` &middot; no picks traded`;
+
+  /* MY_SLOT is a constant, so name the team it resolves to. If that is not you,
+     everything on this page about your roster is wrong and you can see it here
+     rather than working it out from a stranger on your bench. */
+  const me = draft.names[MY_SLOT];
   $("rosterstrip").innerHTML =
-    `<h3>Your roster &middot; slot ${MY_SLOT} &middot; ${myRoster.length} picked &middot; ${MY_PICKS.length} picks owned</h3>` +
+    `<h3>Your roster &middot; ${me ? esc(me) + " &middot; " : ""}slot ${MY_SLOT}` +
+    ` &middot; roster ${MY_ROSTER_ID == null ? "?" : MY_ROSTER_ID}` +
+    ` &middot; ${myRoster.length} picked &middot; ${MY_PICKS.length} picks owned${trades}</h3>` +
     `<div class="slots">` + fill.map(f => {
       const cls = f.got >= f.need ? "full" : f.got > 0 ? "part" : "";
       return `<span class="slot ${cls}">${label[f.slot] || f.slot} ${f.got}/${f.need}</span>`;
@@ -1853,16 +1939,25 @@ async function poll(){
     const picks = await jget(`https://api.sleeper.app/v1/draft/${draft.id}/picks`);
     made = picks.length;
     taken = new Map();
-    for(const p of picks)
-      if(p.player_id) taken.set(String(p.player_id), {slot:p.draft_slot, pick:p.pick_no});
-    myRoster = ROWS.filter(r => { const t = taken.get(r.id); return t && t.slot === MY_SLOT; });
+    for(const p of picks){
+      if(!p.player_id) continue;
+      const rid = ownerOf(p);
+      taken.set(String(p.player_id),
+                {rid, slot: slotOfRoster(rid) || p.draft_slot, seat: p.draft_slot, pick: p.pick_no});
+    }
+    myRoster = ROWS.filter(r => isMine(taken.get(r.id)));
 
     const next = MY_PICKS.find(n => n > made) || null, away = next ? next - made : 0;
     const done = made >= draft.teams * draft.rounds;
-    const onClock = slotForPick(made + 1, draft.teams, draft.reversal);
+    const nextNo = made + 1;
+    /* The team on the clock is whoever OWNS the pick, not whoever sits in the
+       seat it is made from. Those are the same team until someone trades. */
+    const seat = slotForPick(nextNo, draft.teams, draft.reversal);
+    const onClock = slotOfRoster(draft.owner.get(nextNo)) || seat;
     $("v-made").textContent = made;
     $("v-clock").textContent = done ? "draft over"
-      : `#${made + 1} · ${draft.names[onClock] || "slot " + onClock}`;
+      : `#${nextNo} · ${draft.names[onClock] || "slot " + onClock}` +
+        (onClock !== seat ? ` (from ${draft.names[seat] || "slot " + seat})` : "");
     $("v-next").textContent = next ? "#" + next : "done";
     const el = $("v-away");
     el.textContent = next ? away : "—";
@@ -1913,13 +2008,20 @@ async function loadAll(opts){
         ? dObj.settings.reversal_round : 3;
       draft.teams = (dObj.settings && dObj.settings.teams) || draft.teams;
       draft.slots = dObj.slot_to_roster_id || {};
+      draft.season = dObj.season || league.season || null;
       const byId = {};
       for(const u of users) byId[u.user_id] = u.display_name || u.username || "";
       draft.names = {};
-      for(const [uid, slot] of Object.entries(dObj.draft_order || {}))
+      draft.userRoster = {};
+      for(const [uid, slot] of Object.entries(dObj.draft_order || {})){
         if(byId[uid]) draft.names[slot] = byId[uid];
+        const rid = asRid(draft.slots[String(slot)]);
+        if(rid != null) draft.userRoster[uid] = rid;
+      }
     }
-    const [picks, myRid] = myPicksFrom(draft, tp, MY_SLOT);
+    const {owner, slotOf} = buildOwners(draft, tp);
+    draft.owner = owner; draft.slotOf = slotOf;
+    const [picks, myRid] = myPicksFrom(draft, MY_SLOT);
     MY_PICKS = picks; MY_ROSTER_ID = myRid;
 
     const rows = buildRows(P, proj, prior, SC, futureMultipliers(fcalc));
