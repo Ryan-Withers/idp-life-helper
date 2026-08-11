@@ -196,15 +196,26 @@ Every team in the league, scored on the same board you are. One row per team, so
 
 **Empty slots are scored at replacement level, not zero.** A team with no linebacker has not forfeited those points, it will stream the best free body. Replacement level is exactly what "best freely available player at that position" measures, so the same number the board already computes is the honest filler. The **from FA** column reports how much of a total is that filler, and any slot column carrying some of it is drawn in red, so a roster that is mostly hypothetical is visible at a glance rather than flattering.
 
+**Sleeper's own numbers alongside ours.** A `Sleeper` column scores the same roster on the raw Sleeper projection under this league's rules with nothing backfilled, which is what the rest of the room sees, and a `Hidden` column is the difference. The small number beside the Sleeper figure is where the room would rank that team, so a team that is eighth on the board and ninth in the draft interface says so on one line.
+
+Two decisions worth stating:
+
+- **Sleeper gets its own optimal lineup**, not ours. A manager reading Sleeper would field the lineup Sleeper's numbers imply. Scoring our lineup with their numbers would mix the invisible value in with a lineup disagreement and `Hidden` would stop being a clean number.
+- **Its empty slots stream at the Sleeper replacement level**, computed by the same greedy flex fill run on `sleep` rather than on `o`, so that view is internally consistent instead of borrowing a replacement level from ours.
+
+`sleep` is stored per player as a new field rather than by widening the board's existing `App` column, which is defence-only by design and has its own sample guards. `Hidden` on a team is therefore almost entirely defensive, since Sleeper projects no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here.
+
 **One column per slot type, not per position.** `QB RB WR DL LB DB FLX SFLX IDP` for this league, built from the real `roster_positions` rather than hardcoded, which is why there is no TE column: the league has no dedicated tight end slot. Each column is that slot group's own contribution including its filler, so the columns sum to **Proj ppg** exactly and nothing is counted twice.
 
 Every column sorts, same as the board.
 
-**Verified.** 1014 to 2577 assertions per run in Chromium across five draft depths (60, 130, 250, 400 and 540 picks made), all passing.
+**Verified.** 1095 to 2591 assertions per run in Chromium across five draft depths (60, 130, 250, 400 and 540 picks made), all passing.
 
 The assignment itself is checked against exhaustive enumeration: 400 random instances per run, small enough to brute force every possible assignment of players to slots, comparing both the fill count and the total. Zero suboptimal. That matters because local optimality is necessary but not sufficient, so the swap checks below could pass on a genuinely wrong lineup.
 
 The rest: totals reconcile against the slot-by-slot sum in the team card and against `real + FA`; no player starts twice, and every starter is on that team in the pick log; every starter is eligible for the slot he fills; every empty slot draws exactly the replacement level of the best position it can take; a slot sits empty only when nothing eligible is left on the bench; no bench player outscores a starter at a slot he is eligible for; moving a starter to an empty slot he is also eligible for never gains, which is the check that catches a missing `- streamed` term; each slot column equals the sum of its own slots and covers the right number of them; the columns sum to Proj ppg; league average and the vs-avg column reconcile; every column sorts monotonically and flips on a second click.
+
+On the Sleeper column specifically: its lineup covers the same slots; its total equals its own lineup rather than ours; `Hidden` is exactly Ours minus Sleeper; every Sleeper starter is eligible for the slot he fills; its empty slots stream at the Sleeper replacement level; nobody on the bench beats a Sleeper starter on Sleeper's own numbers; `Hidden` is never negative, since backfill only ever adds; the Sleeper rank is a true ranking of the Sleeper totals; and the two rankings differ somewhere, so the column earns its place rather than restating the first one.
 
 ---
 

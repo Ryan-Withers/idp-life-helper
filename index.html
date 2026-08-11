@@ -60,6 +60,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-off
 .strip h3{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
 .slots{display:flex;flex-wrap:wrap;gap:5px}
 .slot{font-size:12px;padding:2px 8px;border-radius:5px;background:var(--surf);border:1px solid var(--line);white-space:nowrap}
+.srk{font-size:9px;color:var(--faint);margin-left:4px;vertical-align:1px}
 .ledger{margin-top:10px}
 .ledger>summary{font-size:11px;color:var(--dim);cursor:pointer}
 .ledger .grp2{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
@@ -479,13 +480,14 @@ function slotCounts(rosterPositions){
 /* Greedy flex fill on current projections. Never hardcoded: fill the dedicated
    slots, then hand each flex slot to whichever eligible position has the best
    player left. Replacement is the next man after the ones consumed. */
-function replacement(rows, slots, teams){
+function replacement(rows, slots, teams, key){
+  const K = key || "o";
   const pool = {}, idx = {};
   for(const b of OFF.concat(DEF)){
-    pool[b] = rows.filter(r => r.p === b).sort((x,y) => y.o - x.o);
+    pool[b] = rows.filter(r => r.p === b && r[K] != null).sort((x,y) => y[K] - x[K]);
     idx[b] = (slots[b]||0) * teams;
   }
-  const nextVal = b => idx[b] < pool[b].length ? pool[b][idx[b]].o : -Infinity;
+  const nextVal = b => idx[b] < pool[b].length ? pool[b][idx[b]][K] : -Infinity;
   for(const [slot, takes] of Object.entries(FLEX_TAKES)){
     const n = (slots[slot]||0) * teams;
     for(let i = 0; i < n; i++){
@@ -497,7 +499,7 @@ function replacement(rows, slots, teams){
   const R = {}, starts = {}, dry = [];
   for(const b of OFF.concat(DEF)){
     starts[b] = idx[b];
-    R[b] = pool[b].length ? +pool[b][Math.min(idx[b], pool[b].length - 1)].o.toFixed(1) : 0;
+    R[b] = pool[b].length ? +pool[b][Math.min(idx[b], pool[b].length - 1)][K].toFixed(1) : 0;
     /* Every startable player got consumed, so this is a floor rather than a real
        replacement level and VORP at that position reads high. Cannot happen on
        live data, but a silent wrong number here would poison the whole board. */
@@ -844,6 +846,12 @@ function buildRows(P, proj, prior, scoring, future){
     const o = score(s, b, scoring) / gp;
     if(o < 4) continue;
     const isOff = OFF.includes(b);
+    /* The same league scoring on the RAW payload, nothing backfilled. This is the
+       number the rest of the room is looking at, for every position rather than
+       just defence, which is what the league view compares against. Kept separate
+       from app: app is the defence-only display column with its own guards, and
+       widening it would change columns that are already verified. */
+    const sleep = +(score(pj, b, scoring) / gp).toFixed(2);
 
     /* How much of a defender's score rests on stats Sleeper never projects and
        we inferred from his 2025 per-tackle rate. This is model risk, not
@@ -897,7 +905,7 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
-      bf, app, hid, hidPct, mech, shrinkW:w, rates,
+      bf, app, hid, hidPct, mech, shrinkW:w, rates, sleep,
       line:s, src, gp, ag,
       f: future[id] != null ? future[id] : null,
       es: null,
@@ -917,6 +925,10 @@ function pickAdp(pj, isOff){
 /* VORP, the rules edge, and both rank movements. */
 function analyse(rows, slots, teams){
   const [R, starts, dry] = replacement(rows, slots, teams);
+  /* The same greedy fill run on Sleeper's own numbers, so the league view's
+     Sleeper column fills an empty slot at the replacement level that view would
+     see rather than borrowing ours. */
+  const [Rsleep] = replacement(rows, slots, teams, "sleep");
   rows.forEach(r => r.v = +(r.o - R[r.p]).toFixed(2));
 
   /* The league inflates everyone by about 60%, so the raw boost is meaningless
@@ -1024,7 +1036,7 @@ function analyse(rows, slots, teams){
     const v = rows.filter(r => r.p === b && r.bf != null).map(r => r.bf);
     return v.length ? Math.round(100 * v.reduce((a,c) => a + c, 0) / v.length) : null;
   };
-  return {R, starts, dry, med: med ? +((med - 1) * 100).toFixed(1) : null,
+  return {R, Rsleep, starts, dry, med: med ? +((med - 1) * 100).toFixed(1) : null,
           te:posMed("TE"), qb:posMed("QB"), rb:posMed("RB"), wr:posMed("WR"),
           bf:{DL:bfMean("DL"), LB:bfMean("LB"), DB:bfMean("DB")}, hidMed};
 }
@@ -1701,7 +1713,9 @@ function hungarian(a, n, m){
    receiver in the superflex, leaving the flex to stream at 14.2, and putting him
    in the flex, leaving the superflex to stream at 19.9. */
 const LINEUP_BIG = 1e5;
-function lineupFor(roster, slots, repl){
+function lineupFor(roster, slots, repl, key){
+  const K = key || "o";
+  const val = r => r[K] == null ? 0 : r[K];
   const out = [];
   const push = (slot, takes) => out.push({slot, takes, r:null,
     /* An empty slot is not zero points: you stream the best freely available body
@@ -1721,7 +1735,7 @@ function lineupFor(roster, slots, repl){
       const row = new Float64Array(m);
       for(let j = 0; j < P; j++)
         if(roster[j].elig.some(p => out[i].takes.includes(p)))
-          row[j] = -(LINEUP_BIG + roster[j].o - out[i].fa);
+          row[j] = -(LINEUP_BIG + val(roster[j]) - out[i].fa);
       a.push(row);
     }
     const asg = hungarian(a, n, m);
@@ -1755,6 +1769,13 @@ function leagueTable(){
     const starters = lineup.filter(x => x.r).length;
     const total = lineup.reduce((a,x) => a + (x.r ? x.r.o : x.fa), 0);
     const real = lineup.reduce((a,x) => a + (x.r ? x.r.o : 0), 0);
+    /* The same roster, assigned and scored on Sleeper's own numbers. Its own
+       optimal lineup rather than ours, because a manager reading Sleeper would
+       field the lineup Sleeper's numbers imply. Doing it any other way mixes the
+       invisible value in with a lineup disagreement and the edge stops being a
+       clean number. */
+    const sl2 = lineupFor(roster, slots, META.Rsleep || repl, "sleep").lineup;
+    const sleeper = sl2.reduce((a,x) => a + (x.r ? (x.r.sleep ?? 0) : x.fa), 0);
     /* Every slot counts under its own column, replacement filler included, so the
        columns add up to the headline number rather than to some subset of it. */
     const bySlot = {};
@@ -1762,14 +1783,18 @@ function leagueTable(){
     for(const x of lineup) if(bySlot[x.slot] != null) bySlot[x.slot] += x.r ? x.r.o : x.fa;
     for(const k of keys) bySlot[k] = +bySlot[k].toFixed(1);
     teams.push({slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
-                starters, slotCount:lineup.length, total:+total.toFixed(1),
+                sleepLineup:sl2, starters, slotCount:lineup.length, total:+total.toFixed(1),
+                sleeper:+sleeper.toFixed(1), edge:+(total - sleeper).toFixed(1),
                 real:+real.toFixed(1), fa:+(total-real).toFixed(1), bySlot, mine:sl === MY_SLOT});
   }
   teams.sort((a,b) => b.total - a.total);
   teams.forEach((t,i) => t.rank = i + 1);
+  /* Where the room would have them, which is the whole point of showing it. */
+  teams.slice().sort((a,b) => b.sleeper - a.sleeper).forEach((t,i) => t.srank = i + 1);
   const avg = teams.reduce((a,t) => a + t.total, 0) / (teams.length || 1);
+  const savg = teams.reduce((a,t) => a + t.sleeper, 0) / (teams.length || 1);
   teams.forEach(t => t.vsAvg = +(t.total - avg).toFixed(1));
-  return {teams, avg:+avg.toFixed(1)};
+  return {teams, avg:+avg.toFixed(1), savg:+savg.toFixed(1)};
 }
 
 /* Every column pivots, same as the board. */
@@ -1784,6 +1809,10 @@ function leagueCols(){
      tip:"How many of the 19 starting slots the roster can actually fill right now."},
     {k:"total", h:"Proj ppg",  get:t => t.total, dir:-1,
      tip:"Sum of Ours across the 19 starting slots, empty slots counted at replacement level."},
+    {k:"sleep", h:"Sleeper",   get:t => t.sleeper, dir:-1,
+     tip:"The same roster scored on Sleeper's own projection under this league's rules, with nothing backfilled. What the rest of the room sees when it looks at this team. Its own optimal lineup, not ours, because a manager reading Sleeper would field the lineup Sleeper's numbers imply. The small number is where the room would rank them."},
+    {k:"edge",  h:"Hidden",    get:t => t.edge, dir:-1,
+     tip:"Proj ppg minus Sleeper: the value on this roster the draft interface cannot see. Almost all of it is defensive, because Sleeper projects no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here. A team high on this list is stronger than the room thinks it is."},
     {k:"fa",    h:"from FA",   get:t => t.fa, dir:-1,
      tip:"How much of that total is replacement-level filler for slots the roster cannot fill."},
     {k:"vs",    h:"vs avg",    get:t => t.vsAvg, dir:-1,
@@ -1815,6 +1844,9 @@ function renderLeague(){
     (t.mine ? '<span class="gl you">you</span>' : "") + `</td>` +
     `<td class="${t.starters < t.slotCount ? "dn" : "up"}">${t.starters}/${t.slotCount}</td>` +
     `<td class="b">${fmt(t.total)}</td>` +
+    `<td class="fl">${fmt(t.sleeper)}<span class="srk">#${t.srank}</span></td>` +
+    `<td class="${t.edge > 0 ? "up" : t.edge < 0 ? "dn" : "fl"}">` +
+    `${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td>` +
     `<td class="fl">${t.fa > 0 ? fmt(t.fa) : "—"}</td>` +
     `<td class="${t.vsAvg > 0 ? "up" : t.vsAvg < 0 ? "dn" : "fl"}">${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)}</td>` +
     keys.map(s => `<td class="${t.lineup.some(x => x.slot === s && !x.r) ? "dn" : "fl"}">` +
@@ -1822,7 +1854,16 @@ function renderLeague(){
     `</tr>`).join("");
   $("league").innerHTML =
     `<table class="calib lg" style="width:100%">${head}${body}</table>` +
-    `<div class="mine" style="margin-top:9px">League average <b>${fmt(L.avg)}</b> points per week ` +
+    `<div class="mine" style="margin-top:9px">` +
+    `<b>Sleeper</b> is the same roster scored on Sleeper's own projection under this league's ` +
+    `rules with nothing backfilled, which is what the rest of the room sees, and the small ` +
+    `number beside it is where the room would rank that team. It gets its own optimal lineup ` +
+    `rather than ours, because a manager reading Sleeper would field the lineup Sleeper's ` +
+    `numbers imply. <b>Hidden</b> is the difference, and it is almost entirely defensive: ` +
+    `Sleeper projects no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here. ` +
+    `A team high on Hidden is stronger than the room thinks. League average on their numbers ` +
+    `is <b>${fmt(L.savg)}</b> against <b>${fmt(L.avg)}</b> on ours.<br><br>` +
+    `League average <b>${fmt(L.avg)}</b> points per week ` +
     `across the ${L.teams[0].slotCount}-slot lineup. Every slot type has its own column and all ` +
     `${keys.length} of them add up to <b>Proj ppg</b> exactly. Empty slots are filled at ` +
     `replacement level, the best freely available player at that position, so a thin roster is ` +
@@ -1837,26 +1878,33 @@ function openTeamCard(slot){
   const L = leagueTable(); if(!L) return;
   const t = L.teams.find(x => x.slot === slot); if(!t) return;
   const label = s => SLOT_LABEL[s] || s;
-  const rows = t.lineup.map(x =>
-    `<tr><td class="l fl">${label(x.slot)}</td>` +
+  /* Sleeper's number for the same player alongside ours, and what it hides. */
+  const cell = (v, cls) => `<td class="${cls||""}">${fmt(v)}</td>`;
+  const rows = t.lineup.map(x => {
+    const hid = x.r ? +(x.r.o - (x.r.sleep ?? x.r.o)).toFixed(1) : 0;
+    return `<tr><td class="l fl">${label(x.slot)}</td>` +
     (x.r
       ? `<td class="l"><span class="nm">${esc(x.r.n)}</span></td><td class="l fl">${x.r.p}${x.r.prk}</td>` +
-        `<td class="l fl">${esc(x.r.t)}</td><td>${fmt(x.r.o)}</td>`
+        `<td class="l fl">${esc(x.r.t)}</td>` + cell(x.r.o) + cell(x.r.sleep, "fl") +
+        `<td class="${hid > 0.05 ? "up" : "fl"}">${hid > 0.05 ? "+" + fmt(hid) : "—"}</td>`
       : `<td class="l dn">empty, streamed</td><td class="l fl">${x.takes.join("/")}</td>` +
-        `<td class="l fl">FA</td><td class="dn">${fmt(x.fa)}</td>`) +
-    `</tr>`).join("");
+        `<td class="l fl">FA</td>` + cell(x.fa, "dn") + `<td class="fl">—</td><td class="fl">—</td>`) +
+    `</tr>`;
+  }).join("");
   const bench = t.bench.slice().sort((a,b) => b.o - a.o).slice(0,14)
     .map(r => `${esc(r.n)} <span class="fl">${r.p} ${fmt(r.o)}</span>`).join(" &nbsp;·&nbsp; ");
   $("card").innerHTML =
     `<button id="cardclose">Close</button>` +
     `<h2>${esc(t.name)}${t.mine ? " (you)" : ""}</h2>` +
-    `<div class="sub2">rank ${t.rank} of ${L.teams.length} &middot; ${fmt(t.total)} projected ppg &middot; ` +
+    `<div class="sub2">rank ${t.rank} of ${L.teams.length} on ours, ${t.srank} on Sleeper's ` +
+    `&middot; ${fmt(t.total)} projected ppg &middot; ` +
     `${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)} vs league average &middot; ` +
     `${t.starters}/${t.slotCount} slots filled &middot; ${t.roster.length} players rostered</div>` +
     `<table><tr><th class="l">Slot</th><th class="l">Player</th><th class="l">Pos</th>` +
-    `<th class="l">Tm</th><th>Ours</th></tr>${rows}` +
+    `<th class="l">Tm</th><th>Ours</th><th>Sleeper</th><th>Hidden</th></tr>${rows}` +
     `<tr class="tot"><td class="l">Total</td><td></td><td></td><td></td>` +
-    `<td>${fmt(t.total)}</td></tr></table>` +
+    `<td>${fmt(t.total)}</td><td>${fmt(t.sleeper)}</td>` +
+    `<td class="${t.edge > 0 ? "up" : "fl"}">${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td></tr></table>` +
     (bench ? `<div class="grp">Bench, best first</div><div class="why2" style="border:none;padding-top:4px">${bench}</div>` : "") +
     `<div class="why2">Empty slots score at replacement level rather than zero, on the basis ` +
     `that anyone can stream the best free body at that position. ` +
@@ -1865,7 +1913,11 @@ function openTeamCard(slot){
     `position eligibility so a DL/LB can take either. It fills as many slots as the roster ` +
     `legally can and then maximises points inside that, which means no rearrangement of these ` +
     `${t.roster.length} players scores higher and nobody on the bench outscores a starter he ` +
-    `could legally replace.</div>`;
+    `could legally replace.<br><br>` +
+    `The <b>Sleeper</b> column is each player scored on Sleeper's own projection under this ` +
+    `league's rules with nothing backfilled, and <b>Hidden</b> is what the draft interface ` +
+    `cannot see on him. The column total is not the sum of the rows: Sleeper's numbers imply ` +
+    `their own optimal lineup, which is the one totalled, and it need not be this one.</div>`;
   $("cardwrap").hidden = false;
   $("cardclose").onclick = closeCard;
 }
