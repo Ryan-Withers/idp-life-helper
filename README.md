@@ -86,6 +86,29 @@ One honest caveat, stated in the box whenever it decides the call: **the market 
 - **Nothing is hidden on a phone.** Every column is present at every width. See below.
 - If the draft feed drops the board keeps working and says the feed is offline rather than blanking.
 
+### The player pool
+
+Four separate caps used to shrink it, three of them silently. All four are gone or moved:
+
+| Cap | Was | Now |
+|---|---|---|
+| Projected games | dropped anyone under **12** | dropped only at **0**, because per-game needs a denominator |
+| Scoring floor | dropped anyone under **4 ppg** | no floor at all |
+| Eligibility | offence read `p.position` only | `fantasy_positions` on both sides of the ball |
+| Rows drawn | first **400**, silently | the whole draft by default, adjustable in the footer |
+
+The games floor was the worst of them: it threw out exactly what a 50-round draft is for. Anyone suspended, anyone returning from a season-ending injury, anyone Sleeper expects to play a part season was not on the board at all. The eligibility rule was quietly dropping players too: a fullback listed `FB` but eligible at `RB` never appeared, and neither did any offensive player Sleeper files under a label this league does not start.
+
+**Partial-season projections are draftable but not startable.** They are on the board, carrying a `7G` chip that names the projected games, and they are held out of the replacement-level fill. Letting a four-game projection at a high per-game rate set replacement for its position would quietly move every VORP on the board. They are also called out by name in the recommendation boxes, because every number on this page is per game and a seven-game line otherwise tops best player available reading like a full season. Stated, never scored: the arithmetic is right and the judgement is yours.
+
+**What is bounded is painting, not the pool.** Every row is sorted, filtered, searched and scored regardless of the cap. Only how many get drawn is limited, because laying out a row of 21 cells costs real time and the cost goes super-linear: in the test container 688 rows take about 0.4s and 2750 take nearly 9s, on every sort click. Profiling put it in layout rather than in the string build (27ms) or the parse (101ms), and no CSS change fixed it: `table-layout: fixed`, `border-collapse: separate` and dropping the ellipsis together bought 408ms down to 314ms. So the default draws `max(600, teams × rounds)`, which covers the whole draft, and the footer has **draft · 600 · 1200 · all** if you want more. The footer also reports the pool size, what was dropped and why, and how many carry a partial projection.
+
+The cache key moved to `idp_players_v5`, because a v4 cache would hold back exactly the players this widening was for.
+
+**Verified.** A pool suite of 42 assertions covering inclusion, exclusion and the cap, plus a before-and-after comparison against a deliberately polluted pool: 400 scrubs below the old scoring floor and 60 partial-season projections at 40 to 100 ppg, which is precisely what the old filters kept out. Across all 678 real players, **every scoring field is byte-identical**: `Ours`, `VORP`, the PPR baseline, `PPR`, `App`, `Hidden`, `Sleeper`, `Boost`, `Fut`. Replacement levels, league-wide starts, the hidden medians and the dry-pool check are unchanged, `App + Hidden = Ours` holds for every defender and `VORP = Ours − replacement` for every player. Only ranks move, which is what adding players to a ranking does.
+
+---
+
 ### Responsive layout
 
 **Every column is present at every width.** Nine of them used to be dropped below 900px, so a phone had no 2025, no App, no Hidden, no PPR, no Fut, no Pos±, no Ov±, no Boost and no team. They are all back, and the board earns the room instead:

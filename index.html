@@ -50,6 +50,7 @@ button.go{border-color:var(--faint);color:var(--ink);font-weight:500;padding:5px
 button.go:hover:not(:disabled){background:var(--surf2)}
 button:focus-visible,input:focus-visible{outline:2px solid var(--qb);outline-offset:1px}
 .lnk{background:none;border:none;padding:0;font-size:11px;color:var(--faint);text-decoration:underline;cursor:pointer}
+.lnk.on{color:var(--ink);font-weight:600}
 .lnk:hover{color:var(--dim)}
 
 .banner{background:var(--hotbg);border:1px solid var(--hotline);border-radius:8px;
@@ -125,12 +126,14 @@ label.c{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;
    Below the breakpoint it becomes a scroll container so the table, rather than
    the whole page, is what slides sideways — sticky is given up there. */
 table{width:100%;border-collapse:collapse;font-size:13px}
+.scroll table{table-layout:fixed}
 th{position:sticky;top:calc(var(--hdr,66px) + var(--barh,40px));background:var(--bg);z-index:20;font-weight:600;font-size:11px;
   letter-spacing:.03em;color:var(--dim);text-align:right;padding:7px 7px;
   border-bottom:1px solid var(--line2);cursor:pointer;white-space:nowrap}
 th.l{text-align:left} th:hover{color:var(--ink)} th[data-on]{color:var(--ink)}
 th[data-on]::after{content:"";font-size:9px;margin-left:3px}
-td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 td.l{text-align:left}
 tbody tr:hover{background:var(--surf)}
 tr.gone{opacity:.38}
@@ -254,8 +257,10 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
      scroller and leave almost nothing to pan the other nineteen through. Long
      names ellipsis and the drafted and yours tags clip off the end, but the row
      tint and the faded drafted row already carry that signal without them. */
-  .scroll th:nth-child(2),.scroll td:nth-child(2){
-    max-width:132px;overflow:hidden;text-overflow:ellipsis}
+  /* Set on the col, not the cell: under table-layout:fixed the colgroup is what
+     sizes a column and a max-width on the cell is ignored. */
+  /* The Player width is set in JS, not here: table-layout:fixed sizes from the
+     colgroup and those widths are inline, which no stylesheet rule can beat. */
 }
 </style>
 </head>
@@ -307,7 +312,7 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
     <p class="note" id="note"></p>
 
     <div class="scroll">
-      <table><thead><tr id="hr"></tr></thead><tbody id="tb"></tbody></table>
+      <table><colgroup id="cg"></colgroup><thead><tr id="hr"></tr></thead><tbody id="tb"></tbody></table>
     </div>
 
     <div id="cardwrap" hidden><div id="cardbg"></div><div id="card"></div></div>
@@ -328,7 +333,7 @@ const MY_SLOT = 11;
 const SEASON = 2026, PRIOR = 2025;
 const POLL_MS = 45000;
 const SURV_SD = 8;                 // measured spread of this room vs ADP
-const PLAYER_CACHE_KEY = "idp_players_v4";
+const PLAYER_CACHE_KEY = "idp_players_v5";   // v5: eligibility now reads fantasy_positions on offence too
 const PLAYER_CACHE_MS = 864e5;     // 24h
 
 /* Standard full PPR, the comparison rulebook. Same stat line, different table. */
@@ -357,6 +362,7 @@ const BACKFILL_PER_GAME   = ["idp_tkl_loss","idp_qb_hit"];
 const BACKFILL_RATE = BACKFILL_PER_TACKLE.concat(BACKFILL_PER_GAME);
 const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
 /* Short header for the league table, where every slot type gets its own column. */
+const COLW = {"iadp": 34, "n": 196, "p": 78, "t": 46, "a": 40, "adp": 54, "cadp": 64, "app": 50, "hid": 58, "ppr": 50, "o": 52, "a25": 52, "now": 50, "v": 54, "f": 48, "pm": 52, "om": 50, "b": 54, "rel": 58, "s1": 54, "s2": 54, "es": 54};
 const SLOT_COL = {FLEX:"FLX", SUPER_FLEX:"SFLX", IDP_FLEX:"IDP",
                   WRRB_FLEX:"WR/RB", "WRRB-FLEX":"WR/RB", REC_FLEX:"REC"};
 
@@ -423,6 +429,11 @@ let taken = new Map();
 let made = 0, myRoster = [];
 let pos = new Set(), sortKey = "adp", sortDir = 1;
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
+/* How many rows get painted. null is the draft-sized default and -1 is all of
+   them; anything else is that number. Only ever limits what is DRAWN: filtering,
+   sorting, searching and every calculation on the page run over the whole pool
+   whatever this is set to. */
+let ROWCAP = null;
 
 const $ = i => document.getElementById(i);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -484,7 +495,12 @@ function replacement(rows, slots, teams, key){
   const K = key || "o";
   const pool = {}, idx = {};
   for(const b of OFF.concat(DEF)){
-    pool[b] = rows.filter(r => r.p === b && r[K] != null).sort((x,y) => y[K] - x[K]);
+    /* Partial-season projections are draftable but not startable, so they are on
+       the board and out of this fill. A four-game projection at a high per-game
+       rate would otherwise set replacement for his position and quietly move
+       every VORP on the board. */
+    pool[b] = rows.filter(r => r.p === b && r[K] != null && r.full !== false)
+                  .sort((x,y) => y[K] - x[K]);
     idx[b] = (slots[b]||0) * teams;
   }
   const nextVal = b => idx[b] < pool[b].length ? pool[b][idx[b]][K] : -Infinity;
@@ -781,14 +797,29 @@ function leagueRates(P, prior){
 
 /* ------------------------------------------------------------------ build */
 /* Score every player, twice, on the identical stat line. */
+/* What the pool discarded and why, so "we are missing some" is answerable from
+   the page instead of from the source. */
+let DROP = {gp:0, meta:0};
+let PLAYER_SEEN = 0;
 function buildRows(P, proj, prior, scoring, future){
   const out = [];
+  DROP = {gp:0, meta:0};
   const LR = leagueRates(P, prior);
   for(const id in proj){
-    const meta = P[id]; if(!meta) continue;
+    const meta = P[id]; if(!meta){ DROP.meta++; continue; }
     const pj = proj[id];
     const [nm, b, tm, age, exp, elig] = meta;
-    const gp = pj.gp || 0; if(gp < 12) continue;
+    /* A positive denominator is all that is genuinely required, because every
+       number on this board is per game. The old floor of 12 threw away exactly
+       the players a 50-round draft is for: anyone suspended, anyone coming back
+       from a season-ending injury, anyone Sleeper expects to play a partial
+       year. In a 600-pick draft those are picks, not noise. */
+    const gp = pj.gp || 0; if(gp < 1){ DROP.gp++; continue; }
+    /* They are still not startable for a full season, so they are flagged on the
+       board and kept out of the replacement-level fill. A four-game projection
+       at a high per-game rate would otherwise set replacement for his position
+       and quietly move every VORP on the board. */
+    const full = gp >= 12;
 
     const s = Object.assign({}, pj);
     const ac = prior[id] || {}, ag = ac.gp || 0;
@@ -844,7 +875,10 @@ function buildRows(P, proj, prior, scoring, future){
     }
 
     const o = score(s, b, scoring) / gp;
-    if(o < 4) continue;
+    /* No scoring floor. Anyone Sleeper projects at all is on the board, because
+       in a 600-pick draft the back of the pool is picks rather than clutter and
+       a floor is the tool deciding for you what is undraftable. Sort and filter
+       decide what you look at; this decides only what exists. */
     const isOff = OFF.includes(b);
     /* The same league scoring on the RAW payload, nothing backfilled. This is the
        number the rest of the room is looking at, for every position rather than
@@ -905,6 +939,7 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
+      full, gp12:gp,
       bf, app, hid, hidPct, mech, shrinkW:w, rates, sleep,
       line:s, src, gp, ag,
       f: future[id] != null ? future[id] : null,
@@ -1046,23 +1081,43 @@ async function loadPlayers(hard){
   if(!hard){
     try{
       const c = JSON.parse(localStorage.getItem(PLAYER_CACHE_KEY) || "null");
-      if(c && Date.now() - c.t < PLAYER_CACHE_MS) return c.d;
+      if(c && Date.now() - c.t < PLAYER_CACHE_MS){ PLAYER_SEEN = c.seen || 0; return c.d; }
     }catch(e){ /* corrupt cache, refetch */ }
   }
   const raw = await jget("https://api.sleeper.app/v1/players/nfl");
   const d = {};
+  let seen = 0;
   for(const id in raw){
     const p = raw[id], fp = p.fantasy_positions || [];
+    seen++;
     /* Sleeper lists every slot a player qualifies for and plenty of defenders
        carry two. In a league starting nine of them that is real flexibility, so
        keep the whole list rather than the first match. The primary is still one
        position, because replacement level and VORP need him in exactly one pool. */
-    const elig = OFF.includes(p.position) ? [p.position] : DEF.filter(x => fp.includes(x));
-    if(!elig.length) continue;
+    /* Eligibility comes from fantasy_positions on both sides of the ball, with
+       the listed position only as a fallback. Reading offence off p.position
+       alone dropped anyone whose listed position is not itself a fantasy slot:
+       a fullback listed FB but eligible at RB never reached the board at all,
+       and neither did any offensive player Sleeper files under a label we do
+       not start. It also lost the second position of a dual-eligible skill
+       player, which defence has always kept. */
+    const all = OFF.concat(DEF);
+    let elig = all.filter(x => fp.includes(x));
+    if(!elig.length && all.includes(p.position)) elig = [p.position];
+    if(!elig.length) continue;      // kickers, team defences, linemen: no slot starts them
+    /* Primary stays a single position, because replacement level and VORP need
+       him in exactly one pool. Offence prefers his listed position when that is
+       itself a fantasy slot. Defence keeps the canonical DL, LB, DB order it has
+       always used: a defender's listed position is his NFL position, so DE, OLB
+       and CB are the norm and preferring it would only fire for the handful
+       Sleeper happens to file under a slot name, splitting the rule. */
+    if(OFF.includes(p.position) && elig.includes(p.position))
+      elig = [p.position].concat(elig.filter(x => x !== p.position));
     d[id] = [((p.first_name||"") + " " + (p.last_name||"")).trim(), elig[0], p.team || "",
              p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null, elig];
   }
-  try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({t:Date.now(), d})); }catch(e){}
+  PLAYER_SEEN = seen;
+  try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({t:Date.now(), d, seen})); }catch(e){}
   return d;
 }
 
@@ -1134,11 +1189,15 @@ function columns(){
       const tag = !own ? "" : isMine(own)
         ? '<span class="gl you">yours</span>' : '<span class="gl">drafted</span>';
       const thin = r.thin ? `<span class="thin" title="Only ${r.g25} games in 2025 — the pass defended, TFL and QB hit backfill is unreliable for him">!</span>` : "";
+      /* Every number on this board is per game, so a short projection is a real
+         rate on a small denominator rather than a small number. Say so, or a
+         four-game projection reads as a starter. */
+      const part = r.full ? "" : `<span class="mech mc" title="Sleeper projects him only ${r.gp12} games, so every per-game number here is a rate off that short a denominator. He is on the board but out of the replacement-level fill.">${r.gp12}G</span>`;
       const mech = r.mech && r.mech !== "BOTH"
         ? `<span class="mech ${r.mech === "RUSH" ? "mr" : "mc"}" title="${r.mech === "RUSH"
             ? "Hidden by QB hits and TFL, which Sleeper does not project" 
             : "Hidden by pass defended, which Sleeper does not project"}">${r.mech}</span>` : "";
-      return `<span class="nm">${esc(r.n)}</span>${thin}${mech}${tag}`;
+      return `<span class="nm">${esc(r.n)}</span>${thin}${part}${mech}${tag}`;
     }},
     {k:"p",   h:"Pos",  cls:"l",
       tip:"Position, and the small number is his rank there on this board. A second position after a slash means Sleeper lists him eligible at both, which matters in a league starting nine defenders because he covers more slots. Filtering on either one will find him. Shift-click position buttons to combine them.",
@@ -1294,6 +1353,16 @@ function render(){
   /* The column set changes as the draft moves and as ESPN comes and goes, so a
      sort key can vanish underneath us. */
   if(!cols.some(c => c.k === sortKey)){ sortKey = "v"; sortDir = -1; }
+  /* Explicit widths and a fixed layout. With table-layout:auto the browser has
+     to measure every cell in every row to size the columns, which is a full
+     content pass over the whole board: at 688 rows that was 589ms of layout on
+     every sort click, and it grows with the pool. Fixed layout sizes from the
+     colgroup alone and makes layout O(rows). */
+  /* Capped on phones, or the two pinned identity columns eat 244 of the 354px
+     scroller and leave almost nothing to pan the other nineteen through. */
+  const narrow = innerWidth <= 900;
+  const colw = c => c.k === "n" && narrow ? 132 : (COLW[c.k] || 52);
+  $("cg").innerHTML = cols.map(c => `<col style="width:${colw(c)}px">`).join("");
   $("hr").innerHTML = cols.map((c,i) =>
     `<th class="${c.cls||""}${c.tr || i >= cols.length - 3 ? " tr" : ""}" data-k="${c.k}"` +
     (c.tip ? ` data-tip="${esc(c.tip)}"` : "") +
@@ -1321,7 +1390,15 @@ function render(){
     return c || (b.v - a.v);
   });
 
-  $("tb").innerHTML = rs.slice(0, 400).map(r => {
+  /* Everything is in the pool: every row here is sorted, filtered, searched and
+     scored. What is bounded is only how many get PAINTED, because laying out a
+     row of 21 cells costs real time and the cost goes super-linear: 688 rows
+     take about 0.4s and 2750 take nearly 9s, on every sort click. The default
+     covers the whole draft; the footer moves it. */
+  const cap = ROWCAP == null ? Math.max(600, draft.teams * draft.rounds)
+            : ROWCAP < 0 ? rs.length : ROWCAP;
+  const shown = rs.slice(0, cap);
+  $("tb").innerHTML = shown.map(r => {
     const own = taken.get(r.id);
     const cls = own ? (isMine(own) ? "own" : "gone") : "";
     return `<tr class="${cls}" data-id="${r.id}">` + cols.map(c => {
@@ -1332,7 +1409,19 @@ function render(){
 
   const R = META.R, S = META.starts;
   $("ft").innerHTML =
-    `${rs.length} of ${ROWS.length} scored${rs.length > 400 ? ", first 400 shown" : ""} &middot; ` +
+    `${rs.length} of ${ROWS.length} scored, ` +
+    (shown.length < rs.length
+      ? `<span style="color:var(--hot)">${shown.length} drawn</span>`
+      : "all drawn") +
+    ` draw ${[["draft", null], ["600", 600], ["1200", 1200], ["all", -1]].map(([lbl, n]) =>
+        `<button class="lnk${ROWCAP === n ? " on" : ""}" data-cap="${n == null ? "" : n}">` +
+        `${lbl}</button>`).join(" &middot; ")} &middot; ` +
+    `pool built from ${PLAYER_SEEN || "?"} players Sleeper lists at a startable position` +
+    (DROP.gp || DROP.meta
+      ? `, ${DROP.gp} dropped for no projected games and ${DROP.meta} for no player record`
+      : "") + ` &middot; ` +
+    `${ROWS.filter(r => !r.full).length} carry a partial-season projection and are kept out of ` +
+    `the replacement fill &middot; ` +
     `replacement QB ${R.QB} RB ${R.RB} WR ${R.WR} TE ${R.TE} DL ${R.DL} LB ${R.LB} DB ${R.DB} &middot; ` +
     `league-wide starts QB ${S.QB} RB ${S.RB} WR ${S.WR} TE ${S.TE} DL ${S.DL} LB ${S.LB} DB ${S.DB}` +
     `<br>` +
@@ -1346,6 +1435,8 @@ function render(){
     `<button class="lnk" id="hardreload">reload player list</button>`;
   const hr = $("hardreload");
   if(hr) hr.onclick = () => loadAll({hardPlayers:true});
+  for(const b of $("ft").querySelectorAll("button[data-cap]"))
+    b.onclick = () => { ROWCAP = b.dataset.cap === "" ? null : +b.dataset.cap; render(); };
 
   /* Recommendations track the pool, not the table filters, but they need the
      survival numbers this function just refreshed. */
@@ -1433,7 +1524,13 @@ function renderRecs(){
   if(!rec){ $("recs").innerHTML = ""; return; }
   const p1 = futurePicks().p1;
 
-  const line = r => `${r.p}${r.prk} · ${r.t || "FA"} · age ${r.a != null ? r.a : "?"} · board #${r.rk}`;
+  /* Every number in these boxes is per game, so a short projection is a real
+     rate on a small denominator. Left unsaid, a seven-game line tops best player
+     available and reads as a full season. Stated, never scored: the arithmetic
+     is right and the judgement is yours. */
+  const line = r => `${r.p}${r.prk} · ${r.t || "FA"} · age ${r.a != null ? r.a : "?"} · board #${r.rk}` +
+    (r.full ? "" : ` · <span class="dn">Sleeper projects him ${r.gp12} games, so this is a ` +
+                   `per-game rate off a part season</span>`);
   const num = (k, v) => `<div class="num"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   const box = (title, r, nums, why) =>
     `<div class="rec"><h4>${title}</h4>` +
@@ -2237,7 +2334,14 @@ function stick(){
   if(h) document.documentElement.style.setProperty("--hdr", h.offsetHeight + "px");
   if(b && b.offsetHeight) document.documentElement.style.setProperty("--barh", b.offsetHeight + "px");
 }
-addEventListener("resize", stick);
+let rz = null;
+addEventListener("resize", () => {
+  stick();
+  /* Column widths are computed, so crossing the phone breakpoint has to redraw
+     them. Debounced, because a drag fires this continuously. */
+  clearTimeout(rz);
+  rz = setTimeout(() => { if(ROWS.length && META.R) render(); }, 150);
+});
 
 /* Console hook, for auditing the maths against the live board. */
 window.IDP = {rows:() => ROWS, meta:() => META, fit, recommend, picks:() => MY_PICKS};
