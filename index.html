@@ -1853,6 +1853,40 @@ function slotKeys(){
     .concat(Object.keys(FLEX_TAKES).filter(k => s[k] > 0));
 }
 
+/* Age, three ways, because they answer three different questions.
+
+   Starter age is weighted by points, not by headcount. An unweighted mean over
+   the lineup lets a 34 year old kicking out 13 ppg drag the number as hard as
+   the 28 year old carrying 30, which is not what anyone means by "how old is
+   this team". Weighting says how old the POINTS are.
+
+   Roster age is a plain mean over everyone rostered, because as a dynasty asset
+   base every body counts once regardless of what he scores this year.
+
+   Young share is the fraction of starting points coming from 26 and under,
+   which is the one that actually separates a contender from an ageing one:
+   two teams can share an average age and have completely different futures.
+
+   Streamed slots have no age and are left out of all three, since a replacement
+   level is a number rather than a person. Coverage is reported so a team with
+   half its ages missing cannot pass as precise. */
+function ages(lineup, roster){
+  const started = lineup.filter(x => x.r);
+  const known = started.filter(x => x.r.a != null);
+  const w = known.reduce((a,x) => a + Math.max(0, x.r.o), 0);
+  const ageW = w > 0
+    ? +(known.reduce((a,x) => a + x.r.a * Math.max(0, x.r.o), 0) / w).toFixed(1) : null;
+  const young = known.filter(x => x.r.a <= 26).reduce((a,x) => a + Math.max(0, x.r.o), 0);
+  const rAges = roster.filter(r => r.a != null).map(r => r.a);
+  return {
+    ageW,
+    ageR: rAges.length ? +(rAges.reduce((a,b) => a + b, 0) / rAges.length).toFixed(1) : null,
+    u26: w > 0 ? Math.round(100 * young / w) : null,
+    ageN: known.length, ageOf: started.length,
+    ageRn: rAges.length, ageRof: roster.length
+  };
+}
+
 function leagueTable(){
   if(!ROWS.length || !META.R) return null;
   const slots = META.slots || {}, repl = META.R;
@@ -1879,10 +1913,11 @@ function leagueTable(){
     for(const k of keys) bySlot[k] = 0;
     for(const x of lineup) if(bySlot[x.slot] != null) bySlot[x.slot] += x.r ? x.r.o : x.fa;
     for(const k of keys) bySlot[k] = +bySlot[k].toFixed(1);
-    teams.push({slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
+    teams.push(Object.assign(ages(lineup, roster),
+               {slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
                 sleepLineup:sl2, starters, slotCount:lineup.length, total:+total.toFixed(1),
                 sleeper:+sleeper.toFixed(1), edge:+(total - sleeper).toFixed(1),
-                real:+real.toFixed(1), fa:+(total-real).toFixed(1), bySlot, mine:sl === MY_SLOT});
+                real:+real.toFixed(1), fa:+(total-real).toFixed(1), bySlot, mine:sl === MY_SLOT}));
   }
   teams.sort((a,b) => b.total - a.total);
   teams.forEach((t,i) => t.rank = i + 1);
@@ -1891,7 +1926,13 @@ function leagueTable(){
   const avg = teams.reduce((a,t) => a + t.total, 0) / (teams.length || 1);
   const savg = teams.reduce((a,t) => a + t.sleeper, 0) / (teams.length || 1);
   teams.forEach(t => t.vsAvg = +(t.total - avg).toFixed(1));
-  return {teams, avg:+avg.toFixed(1), savg:+savg.toFixed(1)};
+  /* League age is the mean of the twelve team figures, not a re-pool of every
+     player: each team counts once, which is what "younger than the league"
+     means when you are comparing yourself to eleven other managers. */
+  const mean = f => { const v = teams.map(f).filter(x => x != null);
+                      return v.length ? +(v.reduce((a,b) => a + b, 0) / v.length).toFixed(1) : null; };
+  return {teams, avg:+avg.toFixed(1), savg:+savg.toFixed(1),
+          ageW: mean(t => t.ageW), ageR: mean(t => t.ageR), u26: mean(t => t.u26)};
 }
 
 /* Every column pivots, same as the board. */
@@ -1908,6 +1949,12 @@ function leagueCols(){
      tip:"Sum of Ours across the 19 starting slots, empty slots counted at replacement level."},
     {k:"sleep", h:"Sleeper",   get:t => t.sleeper, dir:-1,
      tip:"The same roster scored on Sleeper's own projection under this league's rules, with nothing backfilled. What the rest of the room sees when it looks at this team. Its own optimal lineup, not ours, because a manager reading Sleeper would field the lineup Sleeper's numbers imply. The small number is where the room would rank them."},
+    {k:"agew",  h:"Age",       get:t => t.ageW == null ? 999 : t.ageW, dir:1,
+     tip:"Average age of the starting lineup, weighted by points. Weighted rather than a headcount mean, because an unweighted average lets a 34 year old scraping 13 ppg drag the number as hard as the 28 year old carrying 30. This says how old the points are. Streamed slots have no age and are left out."},
+    {k:"ager",  h:"Roster",    get:t => t.ageR == null ? 999 : t.ageR, dir:1,
+     tip:"Average age of every player rostered, starter or not, counted once each. The dynasty asset base rather than this week's lineup."},
+    {k:"u26",   h:"U26",       get:t => t.u26 == null ? -1 : t.u26, dir:-1,
+     tip:"Share of the starting lineup's points coming from players 26 and under. Two teams can share an average age and have completely different futures, and this is the number that separates them."},
     {k:"edge",  h:"Hidden",    get:t => t.edge, dir:-1,
      tip:"Proj ppg minus Sleeper: the value on this roster the draft interface cannot see. Almost all of it is defensive, because Sleeper projects no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here. A team high on this list is stronger than the room thinks it is."},
     {k:"fa",    h:"from FA",   get:t => t.fa, dir:-1,
@@ -1942,6 +1989,12 @@ function renderLeague(){
     `<td class="${t.starters < t.slotCount ? "dn" : "up"}">${t.starters}/${t.slotCount}</td>` +
     `<td class="b">${fmt(t.total)}</td>` +
     `<td class="fl">${fmt(t.sleeper)}<span class="srk">#${t.srank}</span></td>` +
+    /* Younger is the direction this manager drafts, so green is young. */
+    `<td class="${t.ageW == null ? "fl" : t.ageW <= L.ageW - 0.6 ? "up" : t.ageW >= L.ageW + 0.6 ? "dn" : "fl"}"` +
+    ` title="${t.ageN} of ${t.ageOf} starters carry an age">${fmt(t.ageW)}</td>` +
+    `<td class="fl" title="${t.ageRn} of ${t.ageRof} rostered players carry an age">${fmt(t.ageR)}</td>` +
+    `<td class="${t.u26 == null ? "fl" : t.u26 >= 60 ? "up" : t.u26 <= 35 ? "dn" : "fl"}">` +
+    `${t.u26 == null ? "—" : t.u26 + "%"}</td>` +
     `<td class="${t.edge > 0 ? "up" : t.edge < 0 ? "dn" : "fl"}">` +
     `${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td>` +
     `<td class="fl">${t.fa > 0 ? fmt(t.fa) : "—"}</td>` +
@@ -1960,6 +2013,15 @@ function renderLeague(){
     `Sleeper projects no pass defended, no TFL and no QB hits, worth 3, 2 and 1 point here. ` +
     `A team high on Hidden is stronger than the room thinks. League average on their numbers ` +
     `is <b>${fmt(L.savg)}</b> against <b>${fmt(L.avg)}</b> on ours.<br><br>` +
+    `<b>Age</b> is the starting lineup weighted by points rather than by headcount, so it says ` +
+    `how old the points are: an unweighted mean lets a 34 year old scraping 13 ppg drag the ` +
+    `number as hard as the 28 year old carrying 30. <b>Roster</b> is a plain mean over everyone ` +
+    `rostered, the dynasty asset base rather than this week's lineup. <b>U26</b> is the share of ` +
+    `starting points from players 26 and under, which is the one that separates two teams that ` +
+    `share an average age and have completely different futures. League-wide: starters ` +
+    `<b>${fmt(L.ageW)}</b>, rosters <b>${fmt(L.ageR)}</b>, ` +
+    `<b>${L.u26 == null ? "—" : Math.round(L.u26) + "%"}</b> under 26. Green is younger than the league, ` +
+    `red older. Streamed slots have no age and are left out of all three.<br><br>` +
     `League average <b>${fmt(L.avg)}</b> points per week ` +
     `across the ${L.teams[0].slotCount}-slot lineup. Every slot type has its own column and all ` +
     `${keys.length} of them add up to <b>Proj ppg</b> exactly. Empty slots are filled at ` +
@@ -1982,24 +2044,36 @@ function openTeamCard(slot){
     return `<tr><td class="l fl">${label(x.slot)}</td>` +
     (x.r
       ? `<td class="l"><span class="nm">${esc(x.r.n)}</span></td><td class="l fl">${x.r.p}${x.r.prk}</td>` +
-        `<td class="l fl">${esc(x.r.t)}</td>` + cell(x.r.o) + cell(x.r.sleep, "fl") +
+        `<td class="l fl">${esc(x.r.t)}</td>` +
+        `<td class="${x.r.a == null ? "fl" : x.r.a <= 24 ? "up" : x.r.a >= 30 ? "dn" : "fl"}">` +
+        `${x.r.a == null ? "—" : x.r.a}</td>` +
+        cell(x.r.o) + cell(x.r.sleep, "fl") +
         `<td class="${hid > 0.05 ? "up" : "fl"}">${hid > 0.05 ? "+" + fmt(hid) : "—"}</td>`
       : `<td class="l dn">empty, streamed</td><td class="l fl">${x.takes.join("/")}</td>` +
-        `<td class="l fl">FA</td>` + cell(x.fa, "dn") + `<td class="fl">—</td><td class="fl">—</td>`) +
+        `<td class="l fl">FA</td><td class="fl">—</td>` +
+        cell(x.fa, "dn") + `<td class="fl">—</td><td class="fl">—</td>`) +
     `</tr>`;
   }).join("");
   const bench = t.bench.slice().sort((a,b) => b.o - a.o).slice(0,14)
-    .map(r => `${esc(r.n)} <span class="fl">${r.p} ${fmt(r.o)}</span>`).join(" &nbsp;·&nbsp; ");
+    .map(r => `${esc(r.n)} <span class="fl">${r.p} ${fmt(r.o)}` +
+              `${r.a == null ? "" : " · " + r.a + "y"}</span>`).join(" &nbsp;·&nbsp; ");
   $("card").innerHTML =
     `<button id="cardclose">Close</button>` +
     `<h2>${esc(t.name)}${t.mine ? " (you)" : ""}</h2>` +
     `<div class="sub2">rank ${t.rank} of ${L.teams.length} on ours, ${t.srank} on Sleeper's ` +
     `&middot; ${fmt(t.total)} projected ppg &middot; ` +
     `${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)} vs league average &middot; ` +
-    `${t.starters}/${t.slotCount} slots filled &middot; ${t.roster.length} players rostered</div>` +
+    `${t.starters}/${t.slotCount} slots filled &middot; ${t.roster.length} players rostered<br>` +
+    `starters average <b>${fmt(t.ageW)}</b> weighted by points against a league ` +
+    `${fmt(L.ageW)} &middot; whole roster <b>${fmt(t.ageR)}</b> against ${fmt(L.ageR)} ` +
+    `&middot; <b>${t.u26 == null ? "—" : t.u26 + "%"}</b> of starting points from 26 and under, ` +
+    `league ${L.u26 == null ? "—" : Math.round(L.u26) + "%"}` +
+    (t.ageN < t.ageOf ? ` &middot; <span class="dn">${t.ageOf - t.ageN} starter` +
+      `${t.ageOf - t.ageN === 1 ? "" : "s"} carry no age</span>` : "") + `</div>` +
     `<table><tr><th class="l">Slot</th><th class="l">Player</th><th class="l">Pos</th>` +
-    `<th class="l">Tm</th><th>Ours</th><th>Sleeper</th><th>Hidden</th></tr>${rows}` +
+    `<th class="l">Tm</th><th>Age</th><th>Ours</th><th>Sleeper</th><th>Hidden</th></tr>${rows}` +
     `<tr class="tot"><td class="l">Total</td><td></td><td></td><td></td>` +
+    `<td>${fmt(t.ageW)}</td>` +
     `<td>${fmt(t.total)}</td><td>${fmt(t.sleeper)}</td>` +
     `<td class="${t.edge > 0 ? "up" : "fl"}">${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td></tr></table>` +
     (bench ? `<div class="grp">Bench, best first</div><div class="why2" style="border:none;padding-top:4px">${bench}</div>` : "") +
