@@ -773,7 +773,13 @@ function costOfWaiting(){
    second greedy pass of its own: two different fills on one page would sooner or
    later disagree about how many slots the same roster covers. */
 function rosterFill(mine, slots){
-  const {lineup} = lineupFor(mine, slots, META.R || {}, "o", !isWeek());
+  /* Coverage, not choice. This strip answers "do I own a body here", so it
+     always fills slots first, in both modes. Passing the week objective made it
+     answer "is he worth starting instead", and a WR3 who projects under
+     replacement read as a missing receiver: same number, two different
+     questions, and the wrong one on screen. Lineup choice lives in the
+     start/sit boxes, which use the other objective on purpose. */
+  const {lineup} = lineupFor(mine, slots, META.R || {}, "o", true);
   const out = [], at = {};
   for(const x of lineup){
     if(at[x.slot] == null){ at[x.slot] = out.length; out.push({slot:x.slot, need:0, got:0}); }
