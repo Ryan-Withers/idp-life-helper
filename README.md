@@ -1,8 +1,10 @@
 # IDP Life helper
 
-A live draft board for **#23 SF IDP LIFE $55 Dynasty**, a 12-team Sleeper superflex / 2 PPR / TEP dynasty startup that starts nine defensive players.
+A live board for **#23 SF IDP LIFE $55 Dynasty**, a 12-team Sleeper superflex / 2 PPR / TEP dynasty league that starts nine defensive players.
 
 The point of this tool: the league's scoring is distorted enough that standard rankings are actively misleading. This board re-scores every player under the actual rulebook and shows how far each one moves.
+
+**Two modes, one engine.** `week` is the in-season lineup optimiser and is the default; `draft` is the board this started as. The scoring, the backfill, the replacement levels, the optimal assignment and the Sleeper-versus-ours gap are identical under both. Only the inputs differ, and the toggle is in the footer.
 
 **One file. No build step, no data files, no API keys, no cron.** `index.html` fetches every source live from the browser and runs the whole scoring engine there. Press **Refresh** whenever you want fresh numbers. Any change to the tool is a one-file edit.
 
@@ -85,6 +87,41 @@ One honest caveat, stated in the box whenever it decides the call: **the market 
 - **Every column pivots.** All 21 sort in both directions; blanks always trail rather than jumping to the top. Every sort falls back to board order, so grouping by position or team lists each group best-first instead of leaving ties in whatever order the previous sort happened to produce. Filterable by position, searchable, with toggles for hiding drafted players and capping age at 26. Light and dark via `prefers-color-scheme`. Tabular numerals throughout.
 - **Nothing is hidden on a phone.** Every column is present at every width. See below.
 - If the draft feed drops the board keeps working and says the feed is offline rather than blanking.
+
+### Week mode
+
+The in-season half. Same engine, different inputs.
+
+| | Draft | Week |
+|---|---|---|
+| Projections | season totals, `/projections/nfl/regular/{season}` | that week, `/projections/nfl/{type}/{season}/{week}` |
+| The number on screen | points **per game** | points **this week** |
+| Ownership | the draft picks feed | `/league/{id}/rosters`, because waivers and trades have happened since |
+| Which week | n/a | `/v1/state/nfl`, never a constant, so it is right on Tuesday morning |
+| Polling | picks every 45s | rosters every 45s |
+
+**The number means something different and the code says so once.** A season projection covers `pj.gp` games and every figure is that total divided by them. A weekly projection *is* one game, so the denominator is 1. Everything downstream divides by the same variable, so both modes fall out of the same arithmetic rather than a parallel implementation.
+
+**Byes are derived, not looked up.** Sleeper publishes no bye table on v1, so a team with nobody in this week's projection payload is not playing. Guarded by a sanity floor of 20 teams, because an empty or half-loaded payload would otherwise mark the whole league on bye and zero every lineup.
+
+**A player with no weekly projection scores zero, and is still on the board.** The pool in week mode is every projected player *union* everyone rostered in the league, because the player Sleeper does not project is exactly the one you need to see. Dropping him would let the optimiser quietly start someone who is not playing. The 2025 backfill is skipped for him too: prorating his rates onto a game he is not playing would hand a man on his bye a score, which is the one mistake a lineup optimiser must not make.
+
+**The lineup objective flips, and this is the part that matters.** `lineupFor` takes a `fillFirst` flag.
+
+- **Draft:** cost is `-(BIG + points − streamed)`, so filling a slot dominates. An empty slot means you own nobody there and replacement level is a placeholder for a player you have yet to acquire, so any real body beats it.
+- **Week:** `BIG` is zero, so cost is `-(points − streamed)` and a rostered player starts **only if he outscores what you could add off waivers this afternoon**. A man on his bye scores zero, and zero does not beat streaming, so he sits.
+
+Without that flip the optimiser started players on their bye because a zero still filled a slot. The fixture caught it: two in the lineup, and the team total moved 298.9 to 325.2 once they were correctly benched in favour of streaming.
+
+**The three boxes become the start/sit guide.** *Week N lineup* is the best legal arrangement and its total. *Start instead* lists every bench player who outscores a starter he is legally allowed to replace, which is the actual call, and is empty exactly when the shown lineup is already optimal. *Add someone* lists the slots where nobody you roster beats a waiver body, which are adds rather than lineup choices, and then every flagged player on your roster with whether he is starting or benched — because once the optimiser correctly benches a man on his bye, a box that only reads the lineup would go quiet about the very thing you wanted flagged.
+
+**Injury designations are shown, never deducted.** Sleeper's weekly projection already prices a designation in once it is published; a second haircut here would count it twice.
+
+**What this is not.** It is projection-driven, not news-driven. Nothing in this repository reads beat reports or depth chart articles. `injury_status` and `depth_chart_order` come off Sleeper's player payload and are the closest thing to team news available without leaving the API.
+
+**Verified.** A 45-assertion week suite that no other fixture can reach, since they all serve the season endpoint and drive ownership off the picks feed. It asserts: the week comes from the state endpoint; ownership comes from rosters; a week's projection is scored as a week and not divided by games, checked exactly on offence and asserted to be *lifted* on defence so a silently dead backfill cannot pass; byes are derived from who is missing; players on bye keep rows and score zero; injury status reaches the row; draft-only columns are gone and Status is present; **nobody on a bye is started and no starter scores less than streaming his slot**; the swap list is empty exactly when the lineup is already optimal; the draft furniture is off; every team has an opponent; and the layout invariants hold at 1440 and 390 for week mode's own column set. Draft mode is unchanged: 1916 league, 93 unit, 42 pool, 57 trade, 181 layout, 0 invariant violations.
+
+---
 
 ### The player pool
 

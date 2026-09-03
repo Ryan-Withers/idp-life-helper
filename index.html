@@ -331,9 +331,16 @@ footer{font-size:11px;color:var(--faint);margin-top:18px;border-top:1px solid va
 const LEAGUE = "1352969236586201088";
 const MY_SLOT = 11;
 const SEASON = 2026, PRIOR = 2025;
+/* "week" runs the in-season lineup optimiser off weekly projections and the real
+   rosters. "draft" is the board this started as, kept because the engine under
+   both is identical and only the inputs differ: same scoring, same backfill,
+   same replacement levels, same optimal assignment. Flipping it back is one
+   click in the footer rather than a different page. */
+let MODE = localStorage.getItem("idp_mode") === "draft" ? "draft" : "week";
+const isWeek = () => MODE === "week";
 const POLL_MS = 45000;
 const SURV_SD = 8;                 // measured spread of this room vs ADP
-const PLAYER_CACHE_KEY = "idp_players_v5";   // v5: eligibility now reads fantasy_positions on offence too
+const PLAYER_CACHE_KEY = "idp_players_v6";   // v6: injury status and depth chart join the cached record
 const PLAYER_CACHE_MS = 864e5;     // 24h
 
 /* Standard full PPR, the comparison rulebook. Same stat line, different table. */
@@ -362,7 +369,7 @@ const BACKFILL_PER_GAME   = ["idp_tkl_loss","idp_qb_hit"];
 const BACKFILL_RATE = BACKFILL_PER_TACKLE.concat(BACKFILL_PER_GAME);
 const SLOT_LABEL = {SUPER_FLEX:"SF", IDP_FLEX:"IDP FLEX", WRRB_FLEX:"WR/RB", REC_FLEX:"REC"};
 /* Short header for the league table, where every slot type gets its own column. */
-const COLW = {"iadp": 34, "n": 196, "p": 78, "t": 46, "a": 40, "adp": 54, "cadp": 64, "app": 50, "hid": 58, "ppr": 50, "o": 52, "a25": 52, "now": 50, "v": 54, "f": 48, "pm": 52, "om": 50, "b": 54, "rel": 58, "s1": 54, "s2": 54, "es": 54};
+const COLW = {"wrk": 34, "st": 74, "iadp": 34, "n": 196, "p": 78, "t": 46, "a": 40, "adp": 54, "cadp": 64, "app": 50, "hid": 58, "ppr": 50, "o": 52, "a25": 52, "now": 50, "v": 54, "f": 48, "pm": 52, "om": 50, "b": 54, "rel": 58, "s1": 54, "s2": 54, "es": 54};
 const SLOT_COL = {FLEX:"FLX", SUPER_FLEX:"SFLX", IDP_FLEX:"IDP",
                   WRRB_FLEX:"WR/RB", "WRRB-FLEX":"WR/RB", REC_FLEX:"REC"};
 
@@ -428,7 +435,14 @@ let MY_PICKS = [], MY_ROSTER_ID = null;
 let taken = new Map();
 let made = 0, myRoster = [];
 let pos = new Set(), sortKey = "adp", sortDir = 1;
+if(MODE === "week"){ sortKey = "o"; sortDir = -1; }
 let lastLoad = null, lastPoll = null, feedOk = false, espnCount = 0, busy = false;
+/* In-season state. WEEK comes from Sleeper rather than a constant, so the page
+   is right on Tuesday morning without anyone editing it. */
+let WEEK = null, SEASON_TYPE = "regular";
+let ROSTERED = new Set();          // every player id on any roster in the league
+let BYE = new Set();               // teams with nobody projected this week
+let MATCHUPS = new Map();          // roster_id -> {matchup_id, opponent roster_id}
 /* How many rows get painted. null is the draft-sized default and -1 is all of
    them; anything else is that number. Only ever limits what is DRAWN: filtering,
    sorting, searching and every calculation on the page run over the whole pool
@@ -759,7 +773,7 @@ function costOfWaiting(){
    second greedy pass of its own: two different fills on one page would sooner or
    later disagree about how many slots the same roster covers. */
 function rosterFill(mine, slots){
-  const {lineup} = lineupFor(mine, slots, META.R || {});
+  const {lineup} = lineupFor(mine, slots, META.R || {}, "o", !isWeek());
   const out = [], at = {};
   for(const x of lineup){
     if(at[x.slot] == null){ at[x.slot] = out.length; out.push({slot:x.slot, need:0, got:0}); }
@@ -805,21 +819,34 @@ function buildRows(P, proj, prior, scoring, future){
   const out = [];
   DROP = {gp:0, meta:0};
   const LR = leagueRates(P, prior);
-  for(const id in proj){
+  /* In week mode the pool is every projected player PLUS everyone rostered in
+     the league, because a player Sleeper does not project this week is exactly
+     the one you need to see: he is on a bye or he is out, and a lineup optimiser
+     that silently drops him would quietly start someone who is not playing. */
+  const ids = new Set(Object.keys(proj));
+  if(isWeek()) for(const id of ROSTERED) ids.add(id);
+  for(const id of ids){
     const meta = P[id]; if(!meta){ DROP.meta++; continue; }
-    const pj = proj[id];
+    const pj = proj[id] || {};
+    const noproj = !proj[id];
     const [nm, b, tm, age, exp, elig] = meta;
     /* A positive denominator is all that is genuinely required, because every
        number on this board is per game. The old floor of 12 threw away exactly
        the players a 50-round draft is for: anyone suspended, anyone coming back
        from a season-ending injury, anyone Sleeper expects to play a partial
        year. In a 600-pick draft those are picks, not noise. */
-    const gp = pj.gp || 0; if(gp < 1){ DROP.gp++; continue; }
-    /* They are still not startable for a full season, so they are flagged on the
-       board and kept out of the replacement-level fill. A four-game projection
-       at a high per-game rate would otherwise set replacement for his position
-       and quietly move every VORP on the board. */
-    const full = gp >= 12;
+    /* One number, two meanings, and getting it wrong is the whole ballgame. In
+       season mode a projection covers pj.gp games and every figure on the board
+       is that total divided by them, so gp is the denominator. In week mode a
+       projection IS one game, so the denominator is 1 and the number on screen
+       is the points he scores this week rather than his rate. Everything
+       downstream divides by gms, so both modes fall out of the same code. */
+    const gp = isWeek() ? 1 : (pj.gp || 0);
+    if(!isWeek() && gp < 1){ DROP.gp++; continue; }
+    /* Season mode only: a short projection is not startable for a full year, so
+       it is flagged and kept out of the replacement fill. A week is a week. */
+    const full = isWeek() ? true : gp >= 12;
+    const onBye = isWeek() && tm && BYE.has(tm);
 
     const s = Object.assign({}, pj);
     const ac = prior[id] || {}, ag = ac.gp || 0;
@@ -832,7 +859,12 @@ function buildRows(P, proj, prior, scoring, future){
     /* Backfill what Sleeper omits, from the player's own 2025 rate. Never a
        league average — a missing field is a gap in the payload, not a player
        who does not do that thing. */
-    if(ag >= 6){
+    /* No projection this week means no points, full stop. Backfilling him would
+       prorate his 2025 rates onto a game he is not playing and hand a player on
+       bye a score, which is precisely the mistake a lineup optimiser must not
+       make. Season mode never reaches this branch, because a row without a
+       projection does not exist there. */
+    if(ag >= 6 && !noproj){
       if(OFF.includes(b)){
         for(const k of ["pass_att","pass_cmp","pass_td","pass_yd","pass_int","rush_td",
                         "pass_cmp_40p","rush_40p","rec_40p"])
@@ -939,7 +971,8 @@ function buildRows(P, proj, prior, scoring, future){
       a25: ag >= 6 ? +(score(ac, b, scoring) / ag).toFixed(1) : null,
       g25: ag,
       thin: !isOff && ag > 0 && ag < 8,     // 2025 sample too short to trust the backfill
-      full, gp12:gp,
+      full, gp12:gp, noproj, onBye,
+      inj: meta[6] || null, depth: meta[7] != null ? meta[7] : null,
       bf, app, hid, hidPct, mech, shrinkW:w, rates, sleep,
       line:s, src, gp, ag,
       f: future[id] != null ? future[id] : null,
@@ -1017,6 +1050,9 @@ function analyse(rows, slots, teams){
 
   /* Board rank: overall and positional, by VORP. This is how picks get reported. */
   rows.sort((a,b) => b.v - a.v).forEach((r,i) => r.rk = i + 1);
+  /* And this week's order by raw projected points, which is the one that answers
+     "who is best this week" rather than "who is worth the most over a season". */
+  rows.slice().sort((a,b) => b.o - a.o).forEach((r,i) => r.wrk = i + 1);
   for(const b of OFF.concat(DEF))
     rows.filter(r => r.p === b).sort((x,y) => y.v - x.v).forEach((r,i) => r.prk = i + 1);
 
@@ -1113,8 +1149,13 @@ async function loadPlayers(hard){
        Sleeper happens to file under a slot name, splitting the rule. */
     if(OFF.includes(p.position) && elig.includes(p.position))
       elig = [p.position].concat(elig.filter(x => x !== p.position));
+    /* Injury status and depth-chart order ride along in the cached record. They
+       are the closest thing to team news available without leaving Sleeper, and
+       they are the two fields that actually change a start/sit call. */
     d[id] = [((p.first_name||"") + " " + (p.last_name||"")).trim(), elig[0], p.team || "",
-             p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null, elig];
+             p.age != null ? p.age : null, p.years_exp != null ? p.years_exp : null, elig,
+             p.injury_status || null,
+             p.depth_chart_order != null ? p.depth_chart_order : null];
   }
   PLAYER_SEEN = seen;
   try{ localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify({t:Date.now(), d, seen})); }catch(e){}
@@ -1326,7 +1367,46 @@ function columns(){
   if(p2) cols.push({k:"s2", h:"@" + p2, tip:survTip(p2), tr:true,
                     title:() => `Chance he is still there at your pick #${p2}`,
                     cell:r => survCell(r.s2)});
-  return cols;
+  if(!isWeek()) return cols;
+  /* Week mode drops the draft furniture rather than rewriting the list: ADP,
+     Our ADP, the cost of waiting, survival and the dynasty multiplier all answer
+     "when do I take him", which is a question that no longer exists. */
+  const DRAFT_ONLY = new Set(["iadp","adp","cadp","now","s1","s2","f"]);
+  const out = cols.filter(c => !DRAFT_ONLY.has(c.k));
+  /* Rank on this week's projection, so the first column is still the board
+     order and still something you can quote. */
+  out.unshift({k:"wrk", h:"#",
+    tip:"This week's order by projected points under your scoring. Recomputed every refresh, unlike the draft board's static number.",
+    cell:r => `<span class="rk">${r.wrk ?? "—"}</span>`});
+  /* Status earns a column because it is the only thing here that overrides the
+     arithmetic: a 22 point projection on a player listed Out is not 22 points. */
+  out.splice(4, 0, {k:"st", h:"Status", cls:"l",
+    tip:"Injury designation from Sleeper, and BYE for a player whose team has nobody projected this week. A player on bye is scored at zero rather than dropped, so the optimiser never starts someone who is not playing. Sleeper's own weekly projection already prices in a designation once it is published, so this is the flag rather than a second haircut.",
+    cell:r => statusCell(r)});
+  const ours = out.find(c => c.k === "o");
+  if(ours){ ours.h = "Proj";
+    ours.tip = "Points this week under this league's actual scoring settings, pulled live and applied to Sleeper's weekly projection. A week's total, not a per-game rate."; }
+  const ppr = out.find(c => c.k === "ppr");
+  if(ppr) ppr.h = "PPR";
+  const a25 = out.find(c => c.k === "a25");
+  if(a25) a25.h = "2025 pg";
+  return out;
+}
+
+/* Out and Doubtful are the two that change a lineup; the rest are context. */
+const INJ_HARD = new Set(["Out","IR","PUP","Sus","NA","DNR"]);
+function statusCell(r){
+  if(r.onBye) return '<span class="pill" style="background:var(--dnbg);color:var(--dn)" ' +
+    'title="His team has nobody in this week\'s projections, so they are on bye. Scored at zero.">BYE</span>';
+  if(r.inj){
+    const hard = INJ_HARD.has(r.inj) || /^Out|IR|Susp/i.test(r.inj);
+    const q = /^Quest/i.test(r.inj), d = /^Doubt/i.test(r.inj);
+    const fg = hard ? "var(--dn)" : d ? "var(--dn)" : q ? "var(--hot)" : "var(--dim)";
+    const bg = hard || d ? "var(--dnbg)" : q ? "var(--hotbg)" : "var(--surf2)";
+    return `<span class="pill" style="background:${bg};color:${fg}" title="Sleeper injury designation">${esc(r.inj)}</span>`;
+  }
+  if(r.noproj) return '<span class="fl" title="Sleeper publishes no projection for him this week. Scored at zero rather than dropped.">no proj</span>';
+  return '<span class="fl">—</span>';
 }
 const move = v => v == null ? '<span class="fl">—</span>'
   : `<span class="${v > 0 ? "up" : v < 0 ? "dn" : "fl"}">${v > 0 ? "+" : ""}${v}</span>`;
@@ -1432,14 +1512,27 @@ function render(){
     `Sleeper ${SEASON} projections + ${PRIOR} actuals + FantasyCalc` +
     (espnCount ? ` + ESPN (${espnCount} matched)` : "") +
     `, scored live in your browser &middot; data pulled ${lastLoad ? lastLoad.toLocaleTimeString() : "—"} ` +
-    `<button class="lnk" id="hardreload">reload player list</button>`;
+    `<button class="lnk" id="hardreload">reload player list</button>` +
+    ` &middot; mode <button class="lnk${isWeek() ? " on" : ""}" data-mode="week">week</button>` +
+    ` &middot; <button class="lnk${isWeek() ? "" : " on"}" data-mode="draft">draft board</button>`;
   const hr = $("hardreload");
   if(hr) hr.onclick = () => loadAll({hardPlayers:true});
   for(const b of $("ft").querySelectorAll("button[data-cap]"))
     b.onclick = () => { ROWCAP = b.dataset.cap === "" ? null : +b.dataset.cap; render(); };
+  /* Switching mode changes which feeds the page reads, so it reloads rather than
+     re-rendering: the rows themselves mean something different on the other side. */
+  for(const b of $("ft").querySelectorAll("button[data-mode]"))
+    b.onclick = () => {
+      if(b.dataset.mode === MODE) return;
+      MODE = b.dataset.mode;
+      try{ localStorage.setItem("idp_mode", MODE); }catch(e){}
+      sortKey = isWeek() ? "o" : "adp"; sortDir = isWeek() ? -1 : 1;
+      loadAll({});
+    };
 
   /* Recommendations track the pool, not the table filters, but they need the
      survival numbers this function just refreshed. */
+  if(isWeek()) weekHeader();
   renderRecs();
   renderLeague();
   stick();
@@ -1455,6 +1548,116 @@ function futurePicks(){
   const onClock = rest[0] === cur;
   return {cur, p1: (onClock ? rest[1] : rest[0]) || null,
                p2: (onClock ? rest[2] : rest[1]) || null};
+}
+
+/* --------------------------------------------------------------- start / sit */
+/* The three boxes, in season. Same shape as the draft ones and the same rule
+   behind them: the arithmetic decides, the judgement is stated. */
+function renderStartSit(){
+  const mine = myRoster;
+  if(!mine.length){ $("recs").innerHTML =
+    `<div class="rec"><h4>Your roster</h4><div class="who">Nothing rostered</div>` +
+    `<div class="why">Sleeper's rosters endpoint returned no players for roster ` +
+    `${MY_ROSTER_ID == null ? "?" : MY_ROSTER_ID}. Check the slot constant if that is wrong.</div></div>`;
+    return; }
+  const slots = META.slots || {};
+  const {lineup, bench} = lineupFor(mine, slots, META.R, "o", false);
+  const total = lineup.reduce((a,x) => a + (x.r ? x.r.o : x.fa), 0);
+
+  /* The actual start/sit call: someone on the bench who outscores a starter he
+     is legally allowed to replace. The optimal assignment means this list is
+     empty whenever the lineup on this page is already the best one, so it is
+     only ever telling you about a lineup you have set differently in Sleeper. */
+  const swaps = [];
+  for(const x of lineup){
+    if(!x.r) continue;
+    for(const b of bench){
+      if(!b.elig.some(p => x.takes.includes(p))) continue;
+      if(b.o > x.r.o + 0.05) swaps.push({slot:x.slot, out:x.r, in:b, gain:+(b.o - x.r.o).toFixed(1)});
+    }
+  }
+  swaps.sort((a,b) => b.gain - a.gain);
+
+  /* Two different problems, and the first is the one with a deadline. A streamed
+     slot means no rostered player beats a waiver body there this week, so it is
+     an add. A flagged player is context whether or not he is starting: once the
+     optimiser correctly benches a man on his bye he vanishes from the lineup,
+     and a Watch box that only reads the lineup would then go quiet about exactly
+     the thing you wanted flagged. */
+  const holes = lineup.filter(x => !x.r);
+  const risk = mine.filter(r => r.onBye || r.noproj || r.inj)
+                   .sort((a,b) => b.o - a.o);
+  const started = new Set(lineup.filter(x => x.r).map(x => x.r.id));
+
+  const num = (k, v) => `<div class="num"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const nm = r => `<em>${esc(r.n)}</em> <span class="fl">${r.p}${r.prk}` +
+                  `${r.t ? " · " + esc(r.t) : ""}</span>`;
+
+  const best = lineup.filter(x => x.r).sort((a,b) => b.r.o - a.r.o)[0];
+  const lineBox =
+    `<div class="rec"><h4>Week ${WEEK || "?"} lineup</h4>` +
+    `<div class="who">${fmt(total)} projected</div>` +
+    `<div class="meta">${lineup.filter(x => x.r).length}/${lineup.length} slots filled from ` +
+    `${mine.length} rostered${holes.length ? ` · <span class="dn">${holes.length} streamed at replacement</span>` : ""}</div>` +
+    `<div class="nums">${num("Slots", lineup.length)}${num("Bench", bench.length)}` +
+    `${num("Top", best ? fmt(best.r.o) : "—")}</div>` +
+    `<div class="why">The best legal arrangement of your roster this week, by the same ` +
+    `optimal assignment the draft board used, on Sleeper's week ${WEEK || "?"} projections run ` +
+    `through your scoring. Top scorer is ${best ? nm(best.r) : "nobody"}. ` +
+    `Open your team in the league table below for the slot-by-slot sheet.</div></div>`;
+
+  const swapBox = swaps.length
+    ? `<div class="rec"><h4>Start instead</h4>` +
+      `<div class="who">${esc(swaps[0].in.n)}</div>` +
+      `<div class="meta">over ${esc(swaps[0].out.n)} at ${SLOT_LABEL[swaps[0].slot] || swaps[0].slot}` +
+      ` · +${fmt(swaps[0].gain)} this week</div>` +
+      `<div class="nums">${num("In", fmt(swaps[0].in.o))}${num("Out", fmt(swaps[0].out.o))}` +
+      `${num("Gain", "+" + fmt(swaps[0].gain))}</div>` +
+      `<div class="why">` + swaps.slice(0, 6).map(w =>
+        `${nm(w.in)} over ${nm(w.out)} at <b>${SLOT_LABEL[w.slot] || w.slot}</b>, ` +
+        `<b>+${fmt(w.gain)}</b>`).join("<br>") +
+      (swaps.length > 6 ? `<br><span class="fl">and ${swaps.length - 6} more</span>` : "") +
+      `<br><br>Every one of these is a bench player who outscores a starter he is ` +
+      `legally allowed to replace. Nothing here is a hunch.</div></div>`
+    : `<div class="rec"><h4>Start instead</h4><div class="who">Nothing to change</div>` +
+      `<div class="meta">no bench player outscores a starter he could replace</div>` +
+      `<div class="why">The lineup above is already the highest-scoring legal arrangement ` +
+      `of your roster. If Sleeper shows something different, Sleeper's lineup is the one ` +
+      `costing you points.</div></div>`;
+
+  const riskBox =
+    `<div class="rec"><h4>${holes.length ? "Add someone" : "Watch"}</h4>` +
+    `<div class="who">${holes.length ? holes.length + " slot" + (holes.length === 1 ? "" : "s") + " to stream"
+                                     : risk.length ? risk.length + " flagged" : "All clear"}</div>` +
+    `<div class="meta">${holes.length
+      ? "no rostered player beats a waiver body there this week"
+      : risk.length ? "on your roster: bye, out or carrying a designation"
+                    : "nobody rostered is flagged and every slot is covered"}</div>` +
+    `<div class="why">` +
+    (holes.length
+      ? holes.map(x => `<b>${SLOT_LABEL[x.slot] || x.slot}</b> ` +
+          `<span class="fl">${x.takes.join("/")}</span>, streaming is worth <b>${fmt(x.fa)}</b>`).join("<br>") +
+        `<br><br>These are adds, not lineup choices. Replacement level is what the best ` +
+        `freely available player at that position projects for, so a slot lands here only ` +
+        `when nobody you roster beats him.<br><br>`
+      : "") +
+    (risk.length
+      ? `<b>Flagged on your roster</b><br>` + risk.slice(0, 10).map(r =>
+          `${nm(r)} ${started.has(r.id) ? '<b>starting</b>' : '<span class="fl">benched</span>'}, ` +
+          `${r.onBye ? '<span class="dn">on bye</span>'
+            : r.noproj ? '<span class="dn">no projection this week</span>'
+            : `<span class="dn">${esc(r.inj)}</span>`} · ${fmt(r.o)} projected`).join("<br>") +
+        `<br><br>A player on bye or without a projection scores zero rather than being ` +
+        `dropped from the pool, which is what stops the optimiser starting him. A ` +
+        `designation is shown rather than deducted: Sleeper's weekly projection already ` +
+        `prices one in once published, and a second haircut here would count it twice.`
+      : `Nobody on your roster is on a bye, missing a projection or carrying an injury ` +
+        `designation. Byes are derived from the projection payload rather than a bye ` +
+        `table, since Sleeper publishes none on v1: a team with nobody projected is not ` +
+        `playing.`) +
+    `</div></div>`;
+
+  $("recs").innerHTML = lineBox + swapBox + riskBox;
 }
 
 /* ------------------------------------------------------------ recommendations */
@@ -1520,6 +1723,7 @@ function recommend(){
 
 function renderRecs(){
   if(!ROWS.length || !META.R) return;
+  if(isWeek()) return renderStartSit();
   const rec = recommend();
   if(!rec){ $("recs").innerHTML = ""; return; }
   const p1 = futurePicks().p1;
@@ -1602,6 +1806,11 @@ function renderRecs(){
    board at each position now, what is expected to survive to your next pick, and
    the gap between them, which is the drop-off the whole ordering rests on. */
 function renderCalib(drop){
+  /* Set both ways, not just hidden. A one-way hide survives the flip back and
+     the panel stays gone on a draft board that needs it. */
+  const wrap = $("calibwrap");
+  if(wrap) wrap.hidden = isWeek();
+  if(isWeek()) return;
   if(drop.mode !== "live"){
     $("calib").innerHTML =
       `<div class="strip"><h3>Cost of waiting</h3><div class="mine">` +
@@ -1649,7 +1858,7 @@ function renderCalib(drop){
    wrong but not what, and a draft with a lot of trades in it is exactly where a
    count is not enough to check against memory. */
 function tradeLedger(gainedPicks, lostPicks){
-  if(MY_ROSTER_ID == null) return "";
+  if(isWeek() || MY_ROSTER_ID == null) return "";
   const teamOf = rid => draft.names[draft.slotOf[rid]] || ("roster " + rid);
   const rdOf = n => Math.ceil(n / draft.teams);
   const line = (n, other, dir) =>
@@ -1699,9 +1908,15 @@ function renderRoster(){
      rather than working it out from a stranger on your bench. */
   const me = draft.names[MY_SLOT];
   $("rosterstrip").innerHTML =
-    `<h3>Your roster &middot; ${me ? esc(me) + " &middot; " : ""}slot ${MY_SLOT}` +
-    ` &middot; roster ${MY_ROSTER_ID == null ? "?" : MY_ROSTER_ID}` +
-    ` &middot; ${myRoster.length} picked &middot; ${MY_PICKS.length} picks owned${trades}</h3>` +
+    (isWeek()
+      ? `<h3>Your roster &middot; ${me ? esc(me) + " &middot; " : ""}slot ${MY_SLOT}` +
+        ` &middot; roster ${MY_ROSTER_ID == null ? "?" : MY_ROSTER_ID}` +
+        ` &middot; week ${WEEK == null ? "?" : WEEK} &middot; ${myRoster.length} rostered` +
+        ` &middot; ${myRoster.filter(r => r.onBye).length} on bye` +
+        ` &middot; ${myRoster.filter(r => r.inj).length} carrying a designation</h3>`
+      : `<h3>Your roster &middot; ${me ? esc(me) + " &middot; " : ""}slot ${MY_SLOT}` +
+        ` &middot; roster ${MY_ROSTER_ID == null ? "?" : MY_ROSTER_ID}` +
+        ` &middot; ${myRoster.length} picked &middot; ${MY_PICKS.length} picks owned${trades}</h3>`) +
     `<div class="slots">` + fill.map(f => {
       const cls = f.got >= f.need ? "full" : f.got > 0 ? "part" : "";
       return `<span class="slot ${cls}">${label[f.slot] || f.slot} ${f.got}/${f.need}</span>`;
@@ -1717,7 +1932,7 @@ function renderRoster(){
      triggered by the roster being short — you asked to be prompted. */
   const qbs = myRoster.filter(r => r.p === "QB").length;
   const left = ROWS.filter(r => r.p === "QB" && !taken.has(r.id) && r.o >= META.R.QB).length;
-  $("qbwarn").innerHTML = qbs >= 3 ? "" :
+  $("qbwarn").innerHTML = (isWeek() || qbs >= 3) ? "" :
     `<div class="banner"><span class="ic">!</span><div>` +
     `<b>Superflex: ${qbs} of 3 usable quarterbacks.</b> ` +
     `${left} QB${left === 1 ? "" : "s"} still on the board project at or above replacement ` +
@@ -1810,7 +2025,17 @@ function hungarian(a, n, m){
    receiver in the superflex, leaving the flex to stream at 14.2, and putting him
    in the flex, leaving the superflex to stream at 19.9. */
 const LINEUP_BIG = 1e5;
-function lineupFor(roster, slots, repl, key){
+/* fillFirst is the difference between a draft and a week, and getting it wrong
+   starts a player on his bye.
+
+   In a draft, filling a slot dominates: an empty slot means you own nobody there
+   and the replacement level is a placeholder for a player you have yet to
+   acquire, so any real body beats it. In a week, the replacement level is a
+   player you could literally add off waivers this afternoon, so a rostered
+   player only belongs in the lineup if he outscores that. A man on a bye scores
+   zero, and zero does not outscore streaming. */
+function lineupFor(roster, slots, repl, key, fillFirst){
+  const BIG = fillFirst === false ? 0 : LINEUP_BIG;
   const K = key || "o";
   const val = r => r[K] == null ? 0 : r[K];
   const out = [];
@@ -1832,7 +2057,7 @@ function lineupFor(roster, slots, repl, key){
       const row = new Float64Array(m);
       for(let j = 0; j < P; j++)
         if(roster[j].elig.some(p => out[i].takes.includes(p)))
-          row[j] = -(LINEUP_BIG + val(roster[j]) - out[i].fa);
+          row[j] = -(BIG + val(roster[j]) - out[i].fa);
       a.push(row);
     }
     const asg = hungarian(a, n, m);
@@ -1896,7 +2121,7 @@ function leagueTable(){
   for(let sl = 1; sl <= draft.teams; sl++){
     const roster = [];
     for(const [pid, t] of taken) if(t.slot === sl && byId.has(pid)) roster.push(byId.get(pid));
-    const {lineup, bench} = lineupFor(roster, slots, repl);
+    const {lineup, bench} = lineupFor(roster, slots, repl, "o", !isWeek());
     const starters = lineup.filter(x => x.r).length;
     const total = lineup.reduce((a,x) => a + (x.r ? x.r.o : x.fa), 0);
     const real = lineup.reduce((a,x) => a + (x.r ? x.r.o : 0), 0);
@@ -1905,7 +2130,7 @@ function leagueTable(){
        field the lineup Sleeper's numbers imply. Doing it any other way mixes the
        invisible value in with a lineup disagreement and the edge stops being a
        clean number. */
-    const sl2 = lineupFor(roster, slots, META.Rsleep || repl, "sleep").lineup;
+    const sl2 = lineupFor(roster, slots, META.Rsleep || repl, "sleep", !isWeek()).lineup;
     const sleeper = sl2.reduce((a,x) => a + (x.r ? (x.r.sleep ?? 0) : x.fa), 0);
     /* Every slot counts under its own column, replacement filler included, so the
        columns add up to the headline number rather than to some subset of it. */
@@ -1913,8 +2138,12 @@ function leagueTable(){
     for(const k of keys) bySlot[k] = 0;
     for(const x of lineup) if(bySlot[x.slot] != null) bySlot[x.slot] += x.r ? x.r.o : x.fa;
     for(const k of keys) bySlot[k] = +bySlot[k].toFixed(1);
+    const rid = asRid((draft.slots || {})[String(sl)]);
+    const mu = rid != null ? MATCHUPS.get(rid) : null;
+    const oppSlot = mu && mu.opp != null ? slotOfRoster(mu.opp) : null;
     teams.push(Object.assign(ages(lineup, roster),
                {slot:sl, name:draft.names[sl] || ("slot " + sl), roster, lineup, bench,
+                oppName: oppSlot ? (draft.names[oppSlot] || "slot " + oppSlot) : null,
                 sleepLineup:sl2, starters, slotCount:lineup.length, total:+total.toFixed(1),
                 sleeper:+sleeper.toFixed(1), edge:+(total - sleeper).toFixed(1),
                 real:+real.toFixed(1), fa:+(total-real).toFixed(1), bySlot, mine:sl === MY_SLOT}));
@@ -1945,8 +2174,10 @@ function leagueCols(){
      tip:"Click any row for that team's full lineup."},
     {k:"start", h:"Starters",  get:t => t.starters, dir:-1,
      tip:"How many of the 19 starting slots the roster can actually fill right now."},
-    {k:"total", h:"Proj ppg",  get:t => t.total, dir:-1,
-     tip:"Sum of Ours across the 19 starting slots, empty slots counted at replacement level."},
+    {k:"total", h:isWeek() ? "Proj" : "Proj ppg",  get:t => t.total, dir:-1,
+     tip:isWeek()
+       ? "Sum of this week's projections across the starting slots, empty slots counted at replacement level. Points for the week, not a rate."
+       : "Sum of Ours across the 19 starting slots, empty slots counted at replacement level."},
     {k:"sleep", h:"Sleeper",   get:t => t.sleeper, dir:-1,
      tip:"The same roster scored on Sleeper's own projection under this league's rules, with nothing backfilled. What the rest of the room sees when it looks at this team. Its own optimal lineup, not ours, because a manager reading Sleeper would field the lineup Sleeper's numbers imply. The small number is where the room would rank them."},
     {k:"agew",  h:"Age",       get:t => t.ageW == null ? 999 : t.ageW, dir:1,
@@ -1961,7 +2192,9 @@ function leagueCols(){
      tip:"How much of that total is replacement-level filler for slots the roster cannot fill."},
     {k:"vs",    h:"vs avg",    get:t => t.vsAvg, dir:-1,
      tip:"Projected points per week above or below the league average."}
-  ].concat(slotKeys().map(s => {
+  ].concat(isWeek() ? [{k:"opp", h:"Opp", get:t => (t.oppName || "zzz").toLowerCase(), dir:1, cls:"l",
+     tip:"This week's opponent, from the league matchups endpoint. Sort by it to line the two halves of each matchup up next to each other."}] : [])
+   .concat(slotKeys().map(s => {
     const n = (META.slots||{})[s], takes = FLEX_TAKES[s];
     return {k:"s:"+s, h:SLOT_COL[s] || s, get:t => t.bySlot[s], dir:-1,
       tip:`${n} ${SLOT_LABEL[s] || s} slot${n === 1 ? "" : "s"}` +
@@ -1999,6 +2232,7 @@ function renderLeague(){
     `${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td>` +
     `<td class="fl">${t.fa > 0 ? fmt(t.fa) : "—"}</td>` +
     `<td class="${t.vsAvg > 0 ? "up" : t.vsAvg < 0 ? "dn" : "fl"}">${t.vsAvg > 0 ? "+" : ""}${fmt(t.vsAvg)}</td>` +
+    (isWeek() ? `<td class="l fl">${t.oppName ? esc(t.oppName) : "—"}</td>` : "") +
     keys.map(s => `<td class="${t.lineup.some(x => x.slot === s && !x.r) ? "dn" : "fl"}">` +
                   `${fmt(t.bySlot[s])}</td>`).join("") +
     `</tr>`).join("");
@@ -2043,7 +2277,10 @@ function openTeamCard(slot){
     const hid = x.r ? +(x.r.o - (x.r.sleep ?? x.r.o)).toFixed(1) : 0;
     return `<tr><td class="l fl">${label(x.slot)}</td>` +
     (x.r
-      ? `<td class="l"><span class="nm">${esc(x.r.n)}</span></td><td class="l fl">${x.r.p}${x.r.prk}</td>` +
+      ? `<td class="l"><span class="nm">${esc(x.r.n)}</span>` +
+        (isWeek() && (x.r.onBye || x.r.noproj || x.r.inj)
+          ? ` <span class="gl dn">${x.r.onBye ? "BYE" : x.r.noproj ? "NO PROJ" : esc(x.r.inj)}</span>` : "") +
+        `</td><td class="l fl">${x.r.p}${x.r.prk}</td>` +
         `<td class="l fl">${esc(x.r.t)}</td>` +
         `<td class="${x.r.a == null ? "fl" : x.r.a <= 24 ? "up" : x.r.a >= 30 ? "dn" : "fl"}">` +
         `${x.r.a == null ? "—" : x.r.a}</td>` +
@@ -2077,14 +2314,23 @@ function openTeamCard(slot){
     `<td>${fmt(t.total)}</td><td>${fmt(t.sleeper)}</td>` +
     `<td class="${t.edge > 0 ? "up" : "fl"}">${t.edge > 0 ? "+" : ""}${fmt(t.edge)}</td></tr></table>` +
     (bench ? `<div class="grp">Bench, best first</div><div class="why2" style="border:none;padding-top:4px">${bench}</div>` : "") +
-    `<div class="why2">Empty slots score at replacement level rather than zero, on the basis ` +
-    `that anyone can stream the best free body at that position. ` +
+    `<div class="why2">` +
+    (isWeek()
+      ? `A slot marked streamed is one where nobody you roster beats the best freely available ` +
+        `player, so it is an add rather than a lineup choice. `
+      : `Empty slots score at replacement level rather than zero, on the basis ` +
+        `that anyone can stream the best free body at that position. `) +
     `<b>${fmt(t.fa)} of the ${fmt(t.total)}</b> total is that filler. ` +
     `This lineup is a true optimal assignment across all ${t.slotCount} slots, using full ` +
-    `position eligibility so a DL/LB can take either. It fills as many slots as the roster ` +
-    `legally can and then maximises points inside that, which means no rearrangement of these ` +
-    `${t.roster.length} players scores higher and nobody on the bench outscores a starter he ` +
-    `could legally replace.<br><br>` +
+    `position eligibility so a DL/LB can take either. ` +
+    (isWeek()
+      ? `It maximises points outright: a rostered player starts only when he beats what you ` +
+        `could stream at that slot this afternoon, which is why a man on his bye sits even ` +
+        `though he would fill the slot. No rearrangement of these ${t.roster.length} players ` +
+        `scores higher.`
+      : `It fills as many slots as the roster legally can and then maximises points inside ` +
+        `that, which means no rearrangement of these ${t.roster.length} players scores higher ` +
+        `and nobody on the bench outscores a starter he could legally replace.`) + `<br><br>` +
     `The <b>Sleeper</b> column is each player scored on Sleeper's own projection under this ` +
     `league's rules with nothing backfilled, and <b>Hidden</b> is what the draft interface ` +
     `cannot see on him. The column total is not the sum of the rows: Sleeper's numbers imply ` +
@@ -2223,6 +2469,9 @@ function setFeed(state, text){
 
 async function poll(){
   if(!draft.id) return;
+  /* In season the rosters endpoint owns the truth and the picks feed is months
+     stale, so polling it would undo every waiver and trade on a 45s timer. */
+  if(isWeek()) return pollWeek();
   try{
     const picks = await jget(`https://api.sleeper.app/v1/draft/${draft.id}/picks`);
     made = picks.length;
@@ -2265,6 +2514,51 @@ async function poll(){
   }
 }
 
+function weekHeader(){
+  const m = MY_ROSTER_ID != null ? MATCHUPS.get(MY_ROSTER_ID) : null;
+  const oppSlot = m && m.opp != null ? slotOfRoster(m.opp) : null;
+  const lbl = (el, t) => { if(el && el.previousElementSibling) el.previousElementSibling.textContent = t; };
+  $("v-made").textContent = WEEK == null ? "—" : WEEK;
+  lbl($("v-made"), "Week");
+  const clk = $("v-clock"), nxt = $("v-next"), awy = $("v-away");
+  clk.textContent = oppSlot ? (draft.names[oppSlot] || "slot " + oppSlot) : "no matchup";
+  lbl(clk, "Opponent");
+  nxt.textContent = myRoster.length || "—";
+  lbl(nxt, "Rostered");
+  awy.textContent = BYE.size || "0";
+  lbl(awy, "Teams on bye");
+  awy.className = "v";
+}
+
+/* Rosters move on waivers and trades, so they are re-read on the same timer the
+   draft board used for picks. Projections are not re-pulled here: they move on
+   Sleeper's schedule rather than minute to minute, and Refresh does that. */
+async function pollWeek(){
+  try{
+    weekHeader();
+    const rosters = await jget(`https://api.sleeper.app/v1/league/${LEAGUE}/rosters`);
+    const next = new Map(); const seen = new Set();
+    for(const r of rosters){
+      const rid = asRid(r.roster_id);
+      if(rid == null) continue;
+      for(const pid of (r.players || [])){
+        next.set(String(pid), {rid, slot: slotOfRoster(rid), seat: null, pick: null});
+        seen.add(String(pid));
+      }
+    }
+    if(!next.size) throw new Error("rosters empty");
+    taken = next; ROSTERED = seen;
+    myRoster = ROWS.filter(r => isMine(taken.get(r.id)));
+    lastPoll = new Date(); feedOk = true;
+    setFeed("live", "rosters " + lastPoll.toLocaleTimeString());
+    $("stalewarn").innerHTML = "";
+    renderRoster(); render();
+  }catch(e){
+    feedOk = false;
+    setFeed("off", "roster feed offline");
+  }
+}
+
 /* -------------------------------------------------------------------- load */
 async function loadAll(opts){
   opts = opts || {};
@@ -2279,9 +2573,26 @@ async function loadAll(opts){
     const slots = slotCounts(league.roster_positions);
     draft.teams = league.total_rosters || 12;
 
-    const [P, proj, prior, fcalc, dObj, tpDraft, tpLeague, users] = await Promise.all([
+    /* Which week it is comes from Sleeper, never from a constant, so the page is
+       correct on Tuesday morning without anyone editing it. Falls back to the
+       season board if the state endpoint is unreachable, because a wrong week is
+       worse than no week. */
+    if(isWeek()){
+      const st = await jget("https://api.sleeper.app/v1/state/nfl").catch(() => null);
+      if(st){
+        SEASON_TYPE = st.season_type === "post" ? "post" : "regular";
+        WEEK = st.display_week || st.week || st.leg || null;
+      }
+      if(!WEEK){ MODE = "draft"; }
+    }
+    const WK = WEEK;
+
+    const [P, proj, prior, fcalc, dObj, tpDraft, tpLeague, users, rosters, matchups] = await Promise.all([
       loadPlayers(opts.hardPlayers),
-      jget(`https://api.sleeper.app/v1/projections/nfl/regular/${SEASON}`),
+      isWeek()
+        ? jget(`https://api.sleeper.app/v1/projections/nfl/${SEASON_TYPE}/${SEASON}/${WK}`)
+            .catch(() => jget(`https://api.sleeper.app/v1/projections/nfl/regular/${SEASON}/${WK}`))
+        : jget(`https://api.sleeper.app/v1/projections/nfl/regular/${SEASON}`),
       jget(`https://api.sleeper.app/v1/stats/nfl/regular/${PRIOR}`),
       jget("https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1").catch(() => []),
       jget(`https://api.sleeper.app/v1/draft/${draft.id}`).catch(() => null),
@@ -2293,9 +2604,53 @@ async function loadAll(opts){
          out rather than trusting one endpoint to be complete. */
       jget(`https://api.sleeper.app/v1/draft/${draft.id}/traded_picks`).catch(() => []),
       jget(`https://api.sleeper.app/v1/league/${LEAGUE}/traded_picks`).catch(() => []),
-      jget(`https://api.sleeper.app/v1/league/${LEAGUE}/users`).catch(() => [])
+      jget(`https://api.sleeper.app/v1/league/${LEAGUE}/users`).catch(() => []),
+      /* In season the roster is the truth, not the draft picks feed: waivers,
+         trades and drops have all happened since. */
+      isWeek() ? jget(`https://api.sleeper.app/v1/league/${LEAGUE}/rosters`).catch(() => []) : [],
+      isWeek() && WK ? jget(`https://api.sleeper.app/v1/league/${LEAGUE}/matchups/${WK}`).catch(() => []) : []
     ]);
     PLAYERS = P;
+
+    /* Byes, derived rather than looked up: Sleeper publishes no bye table on v1,
+       but a team with nobody in this week's projections is not playing. Guarded
+       by a sanity floor, because an empty or half-loaded projection payload
+       would otherwise mark the whole league on bye and zero every lineup. */
+    BYE = new Set();
+    if(isWeek()){
+      const playing = new Set();
+      for(const id in proj){ const m = P[id]; if(m && m[2]) playing.add(m[2]); }
+      if(playing.size >= 20){
+        const all = new Set();
+        for(const id in P) if(P[id][2]) all.add(P[id][2]);
+        for(const t of all) if(!playing.has(t)) BYE.add(t);
+      }
+    }
+
+    /* Ownership from the rosters endpoint in season, from the picks feed in the
+       draft. Same shape either way, so everything downstream is untouched. */
+    ROSTERED = new Set();
+    if(isWeek()){
+      taken = new Map();
+      for(const r of (rosters || [])){
+        const rid = asRid(r.roster_id);
+        if(rid == null) continue;
+        for(const pid of (r.players || [])){
+          taken.set(String(pid), {rid, slot: null, seat: null, pick: null});
+          ROSTERED.add(String(pid));
+        }
+      }
+      MATCHUPS = new Map();
+      const byMatch = {};
+      for(const m of (matchups || [])){
+        const rid = asRid(m.roster_id);
+        if(rid == null || m.matchup_id == null) continue;
+        (byMatch[m.matchup_id] = byMatch[m.matchup_id] || []).push(rid);
+      }
+      for(const [mid, rs] of Object.entries(byMatch))
+        for(const rid of rs)
+          MATCHUPS.set(rid, {matchup: +mid, opp: rs.find(x => x !== rid) ?? null});
+    }
 
     if(dObj){
       draft.rounds = (dObj.settings && dObj.settings.rounds) || 45;
@@ -2326,6 +2681,10 @@ async function loadAll(opts){
     draft.owner = owner; draft.slotOf = slotOf;
     const [picks, myRid] = myPicksFrom(draft, MY_SLOT);
     MY_PICKS = picks; MY_ROSTER_ID = myRid;
+    /* slotOf only exists once buildOwners has run, so the roster-derived
+       ownership gets its display slot here. Everything downstream, the league
+       view included, keys on slot and so is untouched by which feed filled it. */
+    if(isWeek()) for(const t of taken.values()) t.slot = slotOfRoster(t.rid) || t.slot;
 
     const rows = buildRows(P, proj, prior, SC, futureMultipliers(fcalc));
     const m = analyse(rows, slots, draft.teams);
