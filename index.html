@@ -2173,7 +2173,9 @@ function leagueCols(){
     {k:"name",  h:"Team",      get:t => t.name.toLowerCase(), dir:1, cls:"l",
      tip:"Click any row for that team's full lineup."},
     {k:"start", h:"Starters",  get:t => t.starters, dir:-1,
-     tip:"How many of the 19 starting slots the roster can actually fill right now."},
+     tip:isWeek()
+       ? "How many starting slots are worth filling from the roster this week. The rest are ones where nobody rostered beats the best freely available player, so they are adds rather than holes."
+       : "How many of the 19 starting slots the roster can actually fill right now."},
     {k:"total", h:isWeek() ? "Proj" : "Proj ppg",  get:t => t.total, dir:-1,
      tip:isWeek()
        ? "Sum of this week's projections across the starting slots, empty slots counted at replacement level. Points for the week, not a rate."
@@ -2257,14 +2259,22 @@ function renderLeague(){
     `<b>${L.u26 == null ? "—" : Math.round(L.u26) + "%"}</b> under 26. Green is younger than the league, ` +
     `red older. Streamed slots have no age and are left out of all three.<br><br>` +
     `League average <b>${fmt(L.avg)}</b> points per week ` +
-    `across the ${L.teams[0].slotCount}-slot lineup. Every slot type has its own column and all ` +
-    `${keys.length} of them add up to <b>Proj ppg</b> exactly. Empty slots are filled at ` +
-    `replacement level, the best freely available player at that position, so a thin roster is ` +
-    `scored on what it could stream rather than on zero. <b>Any column shown in red is carrying ` +
-    `some of that filler</b>, and <b>from FA</b> is the total of it across the lineup. Lineups ` +
-    `are a true optimal assignment rather than a greedy fill, so the best legal arrangement of a ` +
-    `roster is always the one shown and nobody on the bench outscores a starter he could ` +
-    `legally replace. Every column sorts. Click a team for its lineup.</div>`;
+    `across the ${L.teams[0].slotCount}-slot lineup${isWeek() ? ", for week " + (WEEK || "?") : ""}. ` +
+    `Every slot type has its own column and all ` +
+    `${keys.length} of them add up to <b>${isWeek() ? "Proj" : "Proj ppg"}</b> exactly. ` +
+    (isWeek()
+      ? `A slot counts at replacement level when nobody on the roster beats the best freely ` +
+        `available player there, which makes it an add rather than a hole. <b>Any column shown ` +
+        `in red is carrying some of that</b>, and <b>from FA</b> totals it. Lineups maximise ` +
+        `points outright, so a rostered player starts only when he beats what his manager could ` +
+        `stream this afternoon, which is why nobody on a bye appears in one.`
+      : `Empty slots are filled at replacement level, the best freely available player at that ` +
+        `position, so a thin roster is scored on what it could stream rather than on zero. ` +
+        `<b>Any column shown in red is carrying some of that filler</b>, and <b>from FA</b> is ` +
+        `the total of it across the lineup. Lineups are a true optimal assignment rather than a ` +
+        `greedy fill, so the best legal arrangement of a roster is always the one shown and ` +
+        `nobody on the bench outscores a starter he could legally replace.`) +
+    ` Every column sorts. Click a team for its lineup.</div>`;
 }
 
 function openTeamCard(slot){
