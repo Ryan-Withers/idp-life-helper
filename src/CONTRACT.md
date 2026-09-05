@@ -72,14 +72,20 @@ is a waiver pickup, not a lineup choice, and must be shown as such.
     lineup: [LINEUP...],     // 19 slots in roster_positions order (dedicated first, then flex)
     bench: [ROW...],         // rostered, not starting, sorted by o desc
     adds: [LINEUP...],       // the subset of lineup with add === true
-    swaps: [{slot, in: ROW, out: ROW|null, gain: 4.1, add: bool}],  // optimal vs set, sorted by gain
+    swaps: [{slot, in: ROW|null, out: ROW|null, gain: 4.1, add: bool}],  // optimal vs set, sorted by gain.
+                             // in === null is a plain sit (nobody comes in for his slot); out === null fills an empty slot.
+                             // Each player in is paired with the weakest player out eligible for the slot he takes.
+    started: Set<id>,        // ids in the optimal lineup
     flagged: [ROW...],       // rostered players with onBye/noproj/inj, whether starting or not
     ageW: 26.2, ageR: 26.8, u26: 46   // weighted starter age, roster mean age, % pts from <=26
   },
   opp: { rid: 4, name: "CaliJam1", total: 310.4, setTotal: 298.1 } | null,
   rows: [ROW...],            // EVERY player in the pool, sorted by o desc (the "all players" list)
   rostered: Set<id>,         // every id on any roster (to mark availability)
-  teams: [{ rid, slot, name, total, setTotal, mine: bool, oppName, ageW, ageR, u26, hidden }...],
+  name: "IDP Life", league: "IDP Life",   // league name (both keys, same value)
+  owner: Map<id, rid>,       // who rosters each player
+  teams: [{ rid, name, total, setTotal, mine: bool, oppName, ageW, ageR, u26, hidden, lineup, bench }...],
+                             // hidden = sum of hid over the optimal starters (points Sleeper does not see)
   repl: {QB:19.9, ...},      // replacement levels (season VORP baseline, for the card)
   fa: {QB:[ROW...], ...},    // best free agents per position, several deep
   bye: ["GB","SEA"],
@@ -94,6 +100,8 @@ UI.render(model)          // full paint of the page from a MODEL
 UI.setFeed(state, text)   // "live" | "warn" | "off"
 UI.onRefresh(fn)          // register the Refresh button handler
 UI.onPlayer(fn)           // register a click handler receiving a ROW (opens the card)
+UI.openCard(row) / UI.closeCard()
+UI.boot(text, bad)        // the boot line, before the first render (progress or a failed first load)
 ```
 
 ### Sections, top to bottom
@@ -127,6 +135,8 @@ UI.onPlayer(fn)           // register a click handler receiving a ROW (opens the
 
 ## Glue (assembly, written last)
 
-Fetch via `src/data.js` → `buildRows` → `analyse` → `weekLineup` per team →
-build MODEL → `UI.render(model)`. Poll rosters every 45s. Cache the 14MB player
-list in localStorage 24h.
+`src/glue.js`: `loadData` → `buildRows` → `analyse` → `weekLineup` per team →
+MODEL → `UI.render(model)`. Rosters and matchups re-read every 45s and the MODEL
+recomputed from the same projections. The 14MB player list is cached in
+localStorage for 24h by `loadPlayers`. `test/assemble.mjs` inlines everything
+into `index.html`; `--check` fails if the committed page has drifted from src/.

@@ -1,0 +1,106 @@
+<div class="boot" id="boot">Loading your roster…</div>
+
+<div class="wrap" id="app" hidden>
+
+  <header class="hdr narrow" id="app-header">
+    <h2 class="sr-only">Header</h2>
+    <div class="hdr-top">
+      <div class="hdr-league">
+        <span id="h-league">League</span>
+        <span id="h-week">Week ?</span>
+      </div>
+      <div class="hdr-controls">
+        <span class="feed"><span class="dot off" id="v-dot"></span><span id="v-feed">offline</span></span>
+        <button type="button" id="btn-refresh">Refresh</button>
+      </div>
+    </div>
+    <div class="hdr-matchup">
+      <div class="hdr-team mine">
+        <div class="t-name" id="h-me-name">You</div>
+        <div class="t-total" id="h-me-total">0.0</div>
+        <div class="t-set" id="h-me-set"></div>
+      </div>
+      <div class="hdr-vs">vs</div>
+      <div class="hdr-team opp">
+        <div class="t-name" id="h-opp-name">No matchup</div>
+        <div class="t-total" id="h-opp-total">?</div>
+      </div>
+    </div>
+    <div class="hdr-fetched" id="h-fetched"></div>
+  </header>
+
+  <main>
+    <section class="narrow" id="sec-lineup">
+      <h2 class="sec-h">Lineup</h2>
+      <div id="lineup-rows"></div>
+    </section>
+
+    <section class="narrow" id="sec-startsit">
+      <h2 class="sec-h">Start / sit</h2>
+      <div id="startsit-body"></div>
+    </section>
+
+    <section class="narrow" id="sec-flagged">
+      <h2 class="sec-h">Flagged</h2>
+      <div id="flagged-body"></div>
+    </section>
+
+    <section class="narrow" id="sec-bench">
+      <h2 class="sec-h">Bench</h2>
+      <div id="bench-rows"></div>
+    </section>
+
+    <section class="narrow" id="sec-adds">
+      <h2 class="sec-h">Adds</h2>
+      <div id="adds-body"></div>
+    </section>
+
+    <section id="sec-allplayers">
+      <h2 class="sec-h">All players</h2>
+      <div class="ap-controls" id="ap-controls">
+        <input type="search" id="ap-search" placeholder="Search players" aria-label="Search players">
+        <div class="posf" id="ap-posfilter">
+          <button type="button" data-pos="ALL" aria-pressed="true">ALL</button>
+          <button type="button" data-pos="QB" aria-pressed="false">QB</button>
+          <button type="button" data-pos="RB" aria-pressed="false">RB</button>
+          <button type="button" data-pos="WR" aria-pressed="false">WR</button>
+          <button type="button" data-pos="TE" aria-pressed="false">TE</button>
+          <button type="button" data-pos="DL" aria-pressed="false">DL</button>
+          <button type="button" data-pos="LB" aria-pressed="false">LB</button>
+          <button type="button" data-pos="DB" aria-pressed="false">DB</button>
+          <button type="button" data-pos="OFF" aria-pressed="false">OFF</button>
+          <button type="button" data-pos="IDP" aria-pressed="false">IDP</button>
+        </div>
+        <label class="hide-c"><input type="checkbox" id="ap-hide-rostered"> Hide rostered</label>
+      </div>
+      <div class="ap-count" id="ap-count"></div>
+      <div class="scroll" id="ap-list"></div>
+      <button type="button" id="ap-showall" hidden>Show all</button>
+    </section>
+
+    <section id="sec-league">
+      <h2 class="sec-h">League</h2>
+      <div class="scroll">
+        <table class="league" id="league-table">
+          <colgroup><col><col><col class="num"><col class="num"><col class="num"><col class="num"></colgroup>
+          <thead>
+            <tr>
+              <th class="l">Team</th><th class="l">Opponent</th><th title="Optimal lineup, our projection">Opt</th>
+              <th title="Lineup set in Sleeper">Set</th><th title="Points Sleeper does not see">Hid</th><th title="Starter age, weighted by points">Age</th>
+            </tr>
+          </thead>
+          <tbody id="league-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="cardwrap" hidden>
+  <div id="cardbg"></div>
+  <div id="card" role="dialog" aria-modal="true" aria-labelledby="card-name">
+    <button type="button" id="cardclose" aria-label="Close">&times;</button>
+    <h2 class="card-eyebrow">Player card</h2>
+    <div id="card-body"></div>
+  </div>
+</div>

@@ -83,7 +83,9 @@ export function makeFixture(seed){
       let elig = [pos];
       if(pos === "DL" && chance(0.16)) elig = ["DL","LB"];
       else if(pos === "LB" && chance(0.16)) elig = ["LB","DB"];
-      else if(pos === "LB" && chance(0.10)) elig = ["LB","DL"];
+      /* Canonical DL, LB, DB order, as loadPlayers writes it: a linebacker who
+         also qualifies at DL is filed DL first, so his primary pool is DL. */
+      else if(pos === "LB" && chance(0.10)) elig = ["DL","LB"];
       else if(pos === "RB" && chance(0.06)) elig = ["RB","WR"];
       else if(pos === "WR" && chance(0.05)) elig = ["WR","TE"];
       const age = chance(0.975) ? Math.round(uni(21, 35)) : null;

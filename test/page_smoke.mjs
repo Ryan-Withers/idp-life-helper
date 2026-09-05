@@ -15,7 +15,7 @@ const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 const E = require(join(root, "src/engine.js"));
 
 const F = makeFixture(20260905);
-const WEEK = 5, MY_RID = 11;
+const WEEK = 5, MY_RID = 1;   // roster 1 has waiver adds in this fixture, so the ADD path is exercised
 /* /players/nfl raw shape, rebuilt from the cached-record fixture, plus a kicker
    and a team defence that loadPlayers must throw out. */
 const rawPlayers = {};
@@ -39,10 +39,18 @@ const routes = [
   [/\/v1\/draft\/draft1$/,             () => ({ slot_to_roster_id: { "11": MY_RID } })],
 ];
 
-/* Expected numbers, straight from the engine in Node. */
-const rostered = new Set(F.rostered), bye = new Set(F.bye);
+/* Expected numbers, straight from the engine in Node, over the SAME player
+   records the browser will build: the raw feed run through data.js's own
+   loadPlayers, so a conversion difference shows up as a difference here too. */
+Object.assign(globalThis, E);
+globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+const D = require(join(root, "src/data.js"));
+globalThis.fetch = async () => ({ ok: true, json: async () => rawPlayers });
+const PLAYERS = await D.loadPlayers(true);
+delete globalThis.fetch;
+const rostered = new Set(F.rostered), bye = D.byeTeams(PLAYERS, F.proj);
 const slots = E.slotCounts(F.rosterPositions);
-const rows = E.buildRows(F.players, F.proj, F.prior, F.scoring, { rostered, bye });
+const rows = E.buildRows(PLAYERS, F.proj, F.prior, F.scoring, { rostered, bye });
 const meta = E.analyse(rows, slots, 12);
 const byId = new Map(rows.map(r => [r.id, r]));
 const total = ro => {
@@ -69,7 +77,8 @@ try{
     const page = await browser.newPage({ viewport: { width: w, height: h } });
     const errors = [], hits = {};
     page.on("pageerror", e => errors.push("pageerror: " + e.message));
-    page.on("console", m => { if(m.type() === "error") errors.push("console: " + m.text()); });
+    /* Resource 404s are the thumbnails this harness deliberately refuses; only script errors count. */
+    page.on("console", m => { if(m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push("console: " + m.text()); });
     await page.route(/.*/, async route => {
       const url = route.request().url();
       if(url.startsWith("https://sleepercdn.com/")) return route.fulfill({ status: 404, body: "" });
@@ -86,6 +95,13 @@ try{
     await page.goto("http://page.test/index.html");
     await page.waitForFunction(() => /Week\s+5/.test(document.body.innerText), null, { timeout: 15000 }).catch(() => {});
     const text = await page.evaluate(() => document.body.innerText);
+    if(process.env.DEBUG){
+      const got = await page.evaluate(() => ({ me: [MODEL.me.rid, MODEL.me.total, MODEL.me.setTotal], opp: MODEL.opp,
+        teams: MODEL.teams.map(t => [t.rid, t.name, t.total]), rows: MODEL.rows.length, R: MODEL.repl }));
+      console.log("page:", JSON.stringify(got));
+      console.log("node:", JSON.stringify({ me: [MY_RID, +me.total.toFixed(1)], opp: [oppRoster.roster_id, +opp.total.toFixed(1)],
+        teams: F.rosters.map(ro => [ro.roster_id, +total(ro).total.toFixed(1)]), rows: rows.length, R: meta.R }));
+    }
     console.log(`\n${w}x${h}`);
     check(/Week\s+5/.test(text), "header shows Week 5");
     check(text.includes(me.total.toFixed(1)), `my optimal total ${me.total.toFixed(1)} on the page`);
@@ -107,6 +123,17 @@ try{
     await page.waitForTimeout(400);
     check(JSON.stringify(hits) !== before, "Refresh re-fetches");
     await page.screenshot({ path: join(here, "out", `page_${w}.png`), fullPage: w === 390 });
+    /* Section clips at phone width, so each part can be eyeballed without a 20000px page. */
+    if(w === 390){
+      for(const id of ["sec-startsit", "sec-flagged", "sec-adds", "sec-league"])
+        await page.locator("#" + id).screenshot({ path: join(here, "out", `sec_${id}.png`) }).catch(() => {});
+      await page.evaluate(() => document.getElementById("sec-allplayers").scrollIntoView());
+      await page.screenshot({ path: join(here, "out", "sec_allplayers_viewport.png") });
+      for(const id of ["sec-bench", "sec-allplayers"]){
+        const top = await page.locator("#" + id).evaluate(e => e.getBoundingClientRect().top + window.scrollY);
+        await page.screenshot({ path: join(here, "out", `sec_${id}.png`), fullPage: true, clip: { x: 0, y: top, width: 390, height: 1100 } }).catch(() => {});
+      }
+    }
     await page.close();
   }
 }finally{ await browser.close(); }

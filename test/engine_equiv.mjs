@@ -41,7 +41,7 @@ const IN = JSON.stringify({
 /* ------------------------------------------------------------------- old */
 let old;
 try{
-  const {ctx, sandbox} = runOldPage(path.join(ROOT, "index.html"));
+  const {ctx, sandbox} = runOldPage(path.join(ROOT, "test", "old_index.html"));
   sandbox.IN = IN;
   vm.runInContext(OLD_DRIVER, ctx, {filename:"old-driver"});
   old = JSON.parse(sandbox.OUT.json);
@@ -165,7 +165,7 @@ if(!duals) gaps.push("no dual-eligible player, so the assignment is untested");
 /* ----------------------------------------------------------------- report */
 const pad = (s, n) => String(s).padEnd(n);
 console.log("");
-console.log("  equivalence: old index.html (week mode) vs src/engine.js");
+console.log("  equivalence: test/old_index.html (the pre-rebuild page, week mode) vs src/engine.js");
 console.log("  " + "-".repeat(66));
 console.log("  " + pad("seed", 22) + fx.seed);
 console.log("  " + pad("rows compared", 22) + nRows + "   (" + fieldsChecked + " field comparisons over " +

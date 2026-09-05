@@ -1,6 +1,6 @@
 /* ===========================================================================
    Run the OLD page's script in node:vm, with just enough DOM stubbed that its
-   top-level wiring survives. Nothing here touches index.html: the file is read,
+   top-level wiring survives. Nothing here touches the snapshot: the file is read,
    its single <script> is lifted out and evaluated as-is.
 
    The stubs are all inert. fetch never resolves, so the auto loadAll() at the

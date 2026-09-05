@@ -22,16 +22,28 @@ const r1 = x => x == null ? null : +x.toFixed(1);
 
 /* Optimal against SET, not against its own bench: the assignment already put
    the best legal arrangement on screen, so diffing it against the players it
-   chose not to start is tautological and could never fire. */
+   chose not to start is tautological and could never fire.
+
+   Pairing is presentational, and a bad pairing lies: matching the i-th player
+   in against the i-th player out reported "IN a DL for the IDP slot, OUT a
+   12-point RB, minus 3.6", when the RB actually made way for a tight end in
+   the flex. So each player coming in is matched to the weakest player going
+   out who could have stood in the slot he takes. Players out with nobody to
+   match are plain sits; players in with nobody to match fill a slot that was
+   empty. The gains still sum exactly to optimal minus set. */
 function swapsFor(lineup, setIds, byId){
-  const optIn  = lineup.filter(x => x.r && !setIds.has(x.r.id));
-  const setOut = [...setIds].map(id => byId.get(id)).filter(Boolean)
-                   .filter(r => !lineup.some(x => x.r && x.r.id === r.id))
-                   .sort((a, b) => a.o - b.o);
-  return optIn.map((x, i) => ({
-    slot: x.slot, add: !!x.add, in: x.r, out: setOut[i] || null,
-    gain: r1(x.r.o - (setOut[i] ? setOut[i].o : 0))
-  })).sort((a, b) => b.gain - a.gain);
+  const inSlots = lineup.filter(x => x.r && !setIds.has(x.r.id)).sort((a, b) => b.r.o - a.r.o);
+  const outs = [...setIds].map(id => byId.get(id)).filter(Boolean)
+                 .filter(r => !lineup.some(x => x.r && x.r.id === r.id))
+                 .sort((a, b) => a.o - b.o);
+  const used = new Set(), swaps = [];
+  for(const x of inSlots){
+    const out = outs.find(r => !used.has(r.id) && r.elig.some(p => x.takes.includes(p))) || null;
+    if(out) used.add(out.id);
+    swaps.push({slot: x.slot, add: !!x.add, in: x.r, out, gain: r1(x.r.o - (out ? out.o : 0))});
+  }
+  for(const r of outs) if(!used.has(r.id)) swaps.push({slot: null, add: false, in: null, out: r, gain: r1(-r.o)});
+  return swaps.sort((a, b) => b.gain - a.gain);
 }
 
 function teamFor(d, ro, rows, meta, byId){
@@ -65,12 +77,16 @@ function buildModel(d, rows, meta){
   for(const ro of d.rosters){ const rid = asRid(ro.roster_id);
     if(rid != null) for(const id of (ro.players || [])) owner.set(String(id), rid); }
   const meT = teams.find(t => t.mine) || null;
+  /* No roster resolved for the slot constant: the page still shows the pool
+     and the league, and says plainly that it does not know which team is you. */
   const me = meT ? Object.assign({}, meT, {
     adds: meT.lineup.filter(x => x.add),
     swaps: swapsFor(meT.lineup, meT.setIds, byId),
     flagged: meT.roster.filter(r => r.onBye || r.noproj || r.inj).sort((a, b) => b.o - a.o),
     started: new Set(meT.lineup.filter(x => x.r).map(x => x.r.id))
-  }) : null;
+  }) : {rid: null, name: "Your roster was not identified (slot " + MY_SLOT + ")", total: null, setTotal: null,
+        lineup: [], bench: [], adds: [], swaps: [], flagged: [], started: new Set(), roster: [], setIds: new Set(),
+        oppRid: null, ageW: null, ageR: null, u26: null, hidden: null};
   const oppT = meT && meT.oppRid != null ? teams.find(t => t.rid === meT.oppRid) : null;
   return {
     name: d.name, league: d.name, week: d.week, season: d.season,

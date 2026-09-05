@@ -1,0 +1,246 @@
+/* Roster page presentation layer. Dark theme only (the app has no light mode).
+   Sleeper TEAM-tab look: colour-coded slot badge, circular thumb, name stack,
+   big tabular-number projection on the right. See CONTRACT.md for the shapes
+   this is rendered from. */
+
+:root{
+  --bg:#0c0e12; --surf:#151920; --surf2:#1a1f27; --surf3:#212733;
+  --line:#252b34; --line2:#333a46;
+  --ink:#edf0f4; --dim:#96a0ac; --faint:#5b6270;
+  --up:#3ecf8e;  --upbg:#122c22;
+  --dn:#e2685a;  --dnbg:#33201c;
+  --hot:#e0a83b; --hotbg:#332912;
+  --accent:#5b9bef;
+
+  /* Position families, matched to Sleeper's own app colours. Each badge pairs
+     a medium-saturation fill with the same translucent dark ink for its
+     letters, which is what gives every pill the same "duotone" read no
+     matter the hue. */
+  --qb:#ef82ac; --rb:#7ddba1; --wr:#7cb6f4; --te:#f2ad68;
+  --dl:#e2836a; --lb:#dfc158; --db:#a99bf1;
+  --badge-ink:rgba(12,10,20,.68);
+}
+
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+button,input{font:inherit;color:inherit}
+
+/* Utility: keeps a heading in the DOM (for structure and the "every section
+   has one" rule) without spending visible space on a label a Sleeper user
+   never asked to read. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.wrap{max-width:1120px;margin:0 auto;padding:0 14px 48px}
+/* The lineup and its neighbouring roster sections read best as one narrow
+   column, same as Sleeper's own TEAM tab; the two data tables (all players,
+   league) are allowed to spread into the rest of the width instead. */
+.narrow{max-width:720px;margin:0 auto}
+
+.boot{padding:80px 16px;text-align:center;color:var(--faint);font-size:13px}
+#app[hidden],.boot[hidden]{display:none}
+
+/* ------------------------------------------------------------------ header */
+header.hdr{padding:14px 0 10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.hdr-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.hdr-league{display:flex;align-items:baseline;gap:9px;min-width:0}
+#h-league{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#h-week{font-size:12px;color:var(--dim);white-space:nowrap}
+.hdr-controls{display:flex;align-items:center;gap:12px;flex:none}
+.feed{font-size:12px;color:var(--dim);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
+.dot.warn{background:var(--hot)}
+.dot.off{background:var(--faint)}
+
+button{background:var(--surf2);border:1px solid var(--line2);color:var(--ink);
+  border-radius:7px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer}
+button:hover{background:var(--surf3)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#0b1220}
+
+.hdr-matchup{display:flex;align-items:center;gap:14px;margin-top:14px}
+.hdr-team{flex:1 1 0;min-width:0}
+.hdr-team.opp{text-align:right}
+.t-name{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-team.mine .t-name{color:var(--ink);font-weight:600}
+.t-total{font-size:26px;font-weight:800;line-height:1.15}
+.t-set{font-size:11px;color:var(--faint);margin-top:2px}
+.hdr-vs{flex:none;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.hdr-fetched{font-size:11px;color:var(--faint);margin-top:10px}
+
+/* ------------------------------------------------------------------ section shells */
+section{margin:22px 0}
+.sec-h{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;margin:0 0 8px}
+.sec-note{font-size:12.5px;color:var(--dim);margin:0 0 8px;line-height:1.55}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ------------------------------------------------------------------ player / slot row
+   Shared by the lineup and the bench: badge, thumbnail, name stack, big number.
+   This is the row that has to look like the Sleeper screenshot. */
+.prow{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.prow:last-child{border-bottom:none}
+.prow[data-pid]{cursor:pointer;border-radius:8px}
+.prow[data-pid]:hover{background:var(--surf)}
+.prow.dim .prow-name{color:var(--dim)}
+.prow.dim{opacity:.82}
+.prow.add{background:var(--upbg);border-radius:8px}
+.prow.empty{border:1px dashed var(--line2);border-radius:9px;padding:11px 12px;margin:5px 0;background:none}
+
+.badge{flex:none;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:12.5px;font-weight:800;color:var(--badge-ink);letter-spacing:.01em}
+.badge.sm{width:30px;height:22px;border-radius:6px;font-size:10px}
+.bdg-qb{background:var(--qb)} .bdg-rb{background:var(--rb)} .bdg-wr{background:var(--wr)} .bdg-te{background:var(--te)}
+.bdg-dl{background:var(--dl)} .bdg-lb{background:var(--lb)} .bdg-db{background:var(--db)}
+.bdg-flex{background:linear-gradient(90deg,var(--wr) 0 33%,var(--rb) 33% 66%,var(--te) 66% 100%)}
+.bdg-super_flex{background:linear-gradient(90deg,var(--qb) 0 25%,var(--rb) 25% 50%,var(--wr) 50% 75%,var(--te) 75% 100%)}
+.bdg-idp_flex{background:linear-gradient(90deg,var(--dl) 0 33%,var(--lb) 33% 66%,var(--db) 66% 100%)}
+
+/* Circular thumbnail with a plain-circle fallback. The fallback is the empty
+   .ava background showing through: on error the <img> gets display:none via
+   .err rather than a new src, so there is never a second network request and
+   never a broken-image glyph. */
+.ava{flex:none;width:40px;height:40px;border-radius:50%;background:var(--surf3);overflow:hidden}
+.ava img{width:100%;height:100%;object-fit:cover;display:block}
+.ava img.err{display:none}
+
+.prow-main{flex:1 1 auto;min-width:0}
+.prow-name{font-weight:700;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow-sub{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.prow-slp{font-size:11px;color:var(--faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mid{padding:0 4px;color:var(--faint)}
+.prow-proj{flex:none;font-size:21px;font-weight:800;text-align:right;min-width:54px}
+.empty-txt{font-size:13px;color:var(--faint)}
+
+.chip{display:inline-block;font-size:9.5px;font-weight:800;text-transform:uppercase;
+  letter-spacing:.04em;padding:1px 6px;border-radius:4px;margin-left:5px;vertical-align:1px}
+.chip-bye{color:var(--faint);background:var(--surf3)}
+.chip-inj{color:var(--hot);background:var(--hotbg)}
+.chip-noproj{color:var(--faint);background:var(--surf3)}
+.chip-add{color:var(--up);background:var(--upbg)}
+
+/* ------------------------------------------------------------------ start/sit */
+.ss-total{font-size:15px;font-weight:700;margin-bottom:8px}
+.ss-total .n{color:var(--up)}
+.swap-row{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line);
+  font-size:13px;flex-wrap:wrap}
+.swap-row:last-child{border-bottom:none}
+.swap-in,.swap-out{cursor:pointer;border-radius:5px;padding:1px 3px}
+.swap-in:hover,.swap-out:hover{background:var(--surf)}
+.swap-in b, .swap-out b{font-weight:700}
+.swap-out{color:var(--dim)}
+.swap-gain{margin-left:auto;font-weight:700;color:var(--up);flex:none}
+.msg{font-size:13px;color:var(--dim);background:var(--surf2);border:1px solid var(--line);
+  border-radius:8px;padding:11px 13px}
+
+/* ------------------------------------------------------------------ flagged */
+.flag-row{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--line);
+  font-size:13px;cursor:pointer;border-radius:7px}
+.flag-row:last-child{border-bottom:none}
+.flag-row:hover{background:var(--surf)}
+.flag-name{font-weight:600;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flag-why{font-size:12px;color:var(--dim);flex:1 1 auto;min-width:0}
+.tag-status{flex:none;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  padding:2px 7px;border-radius:4px;color:var(--dim);background:var(--surf3)}
+.tag-status.starting{color:var(--up);background:var(--upbg)}
+
+/* ------------------------------------------------------------------ adds */
+.add-group{margin-bottom:14px}
+.add-group:last-child{margin-bottom:0}
+.add-group h3{font-size:12px;font-weight:700;color:var(--dim);margin:0 0 4px;display:flex;align-items:center;gap:7px}
+.add-row{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px}
+.add-row:last-child{border-bottom:none}
+.add-name{font-weight:600;cursor:pointer;border-radius:5px}
+.add-name:hover{background:var(--surf)}
+.add-vs{font-size:12px;color:var(--dim);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.add-vs .drop{cursor:pointer;border-radius:4px}
+.add-vs .drop:hover{background:var(--surf)}
+.add-diff{flex:none;font-weight:700;color:var(--up)}
+.add-diff.neg{color:var(--faint);font-weight:500}
+
+/* ------------------------------------------------------------------ all players */
+.ap-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;
+  position:sticky;top:0;background:var(--bg);padding:6px 0;z-index:5}
+input[type=search]{background:var(--surf2);border:1px solid var(--line2);color:var(--ink);
+  border-radius:7px;padding:6px 10px;font-size:13px;min-width:150px;flex:1 1 150px}
+.posf{display:flex;flex-wrap:wrap;gap:5px}
+.posf button{padding:4px 10px;font-size:11.5px}
+label.hide-c{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.ap-count{font-size:12px;color:var(--faint);margin:2px 0 8px}
+
+.aprow{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--line);
+  cursor:pointer;border-radius:7px}
+.aprow:hover{background:var(--surf)}
+.ap-rk{flex:none;width:30px;color:var(--faint);font-size:12px;text-align:right}
+.ap-main{flex:1 1 auto;min-width:0}
+.ap-name{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-sub{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-owner{color:var(--faint)}
+.ap-owner.you{color:var(--up);font-weight:700}
+.ap-nums{flex:none;display:flex;gap:12px;align-items:baseline}
+.ap-num{text-align:right;min-width:38px}
+.ap-num .k{display:block;font-size:8.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+.ap-num .v{font-size:13px;font-weight:700}
+.ap-num.our .v{font-size:15px;color:var(--ink)}
+#ap-showall{display:block;margin:10px auto 0}
+
+/* ------------------------------------------------------------------ league */
+table.league{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+table.league col.num{width:48px}
+table.league th.l,table.league td.l{overflow:hidden;text-overflow:ellipsis}
+table.league th{text-align:right;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--faint);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+table.league th.l,table.league td.l{text-align:left}
+table.league td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+table.league th{padding-left:6px;padding-right:6px}
+table.league tr.mine{background:var(--upbg)}
+table.league tr.mine td:first-child{font-weight:700;color:var(--ink)}
+
+/* ------------------------------------------------------------------ player card modal */
+#cardwrap[hidden]{display:none}
+#cardbg{position:fixed;inset:0;background:rgba(4,5,8,.68);z-index:80}
+#card{position:fixed;z-index:81;top:4vh;left:50%;transform:translateX(-50%);
+  width:min(680px,94vw);max-height:92vh;overflow:auto;background:var(--surf2);
+  border:1px solid var(--line2);border-radius:12px;padding:20px 22px}
+#cardclose{position:absolute;top:12px;right:12px;width:28px;height:28px;padding:0;
+  border-radius:50%;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center}
+.card-eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.card-name{font-size:20px;font-weight:800;margin-top:3px}
+.card-sub{font-size:12px;color:var(--dim);margin-top:3px}
+.card-key{font-size:11.5px;color:var(--dim);margin:12px 0;display:flex;flex-wrap:wrap;gap:3px 14px}
+.sq{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px}
+.bg-sleeper{background:var(--wr)} .bg-shrunk{background:var(--rb)}
+.bg-rate{background:var(--te)} .bg-prorated{background:var(--db)}
+table.stat{width:100%;border-collapse:collapse;font-size:12.5px}
+table.stat th{text-align:right;font-size:10px;color:var(--faint);font-weight:700;padding:3px 6px;
+  border-bottom:1px solid var(--line2)}
+table.stat th.l,table.stat td.l{text-align:left}
+table.stat td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right}
+.card-total{font-size:13.5px;line-height:1.65;color:var(--dim);margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--line)}
+.card-total b{color:var(--ink)}
+.card-total code{font-size:11.5px}
+.fl{color:var(--faint)}
+.card-grp{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;margin-top:16px}
+
+/* ------------------------------------------------------------------ responsive */
+@media (max-width:520px){
+  .wrap{padding:0 10px 40px}
+  .t-total{font-size:22px}
+  .prow-proj{font-size:19px;min-width:46px}
+  .ap-nums{gap:8px}
+  .ap-num{min-width:32px}
+  .hdr-matchup{gap:8px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .prow[data-pid],.aprow,.flag-row,.add-name,.swap-in,.swap-out{transition:background .12s ease}
+  button{transition:background .12s ease}
+}
+
+.boot.bad{color:#ff8a80}
+.swap-nobadge{flex:none;width:34px}
