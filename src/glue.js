@@ -52,9 +52,15 @@ function teamFor(d, ro, rows, meta, byId){
   const {lineup: raw, bench} = weekLineup(mine, d.slots, rows, meta.R, d.rostered);
   const lineup = orderLineup(raw, d.rosterPositions);
   const total = sum(lineup, x => x.r ? x.r.o : 0);
-  const setIds = new Set((d.setStarters.get(rid) || []).map(String));
+  const setArr = (d.setStarters.get(rid) || []).map(String);
+  const setIds = new Set(setArr);
   setIds.delete("0");
   const setTotal = setIds.size ? r1(sum([...setIds], id => (byId.get(id) || {}).o)) : null;
+  /* Sleeper's starters array follows roster_positions, one entry per starting
+     slot with "0" for an empty one, so the set lineup lines up slot for slot
+     with the optimal one above. */
+  const starting = (d.rosterPositions || []).filter(s => !BENCH.has(s));
+  const setLineup = starting.map((slot, i) => ({slot, r: byId.get(setArr[i]) || null}));
   /* Points in this lineup that Sleeper's own projection does not see: the
      backfilled defensive stats. Offence has none, by construction. */
   const hidden = sum(lineup, x => x.r ? x.r.hid : 0);
@@ -65,7 +71,10 @@ function teamFor(d, ro, rows, meta, byId){
     total: r1(total), setTotal, hidden: r1(hidden),
     oppRid: m && m.opp != null ? m.opp : null,
     oppName: m && m.opp != null ? (d.teamName.get(m.opp) || ("Team " + m.opp)) : null,
-    lineup, bench: bench.slice().sort((a, b) => b.o - a.o), roster: mine, setIds
+    lineup, setLineup, bench: bench.slice().sort((a, b) => b.o - a.o), roster: mine, setIds,
+    adds: lineup.filter(x => x.add),
+    flagged: mine.filter(r => r.onBye || r.noproj || r.inj).sort((a, b) => b.o - a.o),
+    started: new Set(lineup.filter(x => x.r).map(x => x.r.id))
   });
 }
 
@@ -79,23 +88,22 @@ function buildModel(d, rows, meta){
   const meT = teams.find(t => t.mine) || null;
   /* No roster resolved for the slot constant: the page still shows the pool
      and the league, and says plainly that it does not know which team is you. */
-  const me = meT ? Object.assign({}, meT, {
-    adds: meT.lineup.filter(x => x.add),
-    swaps: swapsFor(meT.lineup, meT.setIds, byId),
-    flagged: meT.roster.filter(r => r.onBye || r.noproj || r.inj).sort((a, b) => b.o - a.o),
-    started: new Set(meT.lineup.filter(x => x.r).map(x => x.r.id))
-  }) : {rid: null, name: "Your roster was not identified (slot " + MY_SLOT + ")", total: null, setTotal: null,
-        lineup: [], bench: [], adds: [], swaps: [], flagged: [], started: new Set(), roster: [], setIds: new Set(),
-        oppRid: null, ageW: null, ageR: null, u26: null, hidden: null};
-  const oppT = meT && meT.oppRid != null ? teams.find(t => t.rid === meT.oppRid) : null;
+  const me = meT ? Object.assign({}, meT, {swaps: swapsFor(meT.lineup, meT.setIds, byId)})
+    : {rid: null, name: "Your roster was not identified (slot " + MY_SLOT + ")", total: null, setTotal: null,
+       lineup: [], setLineup: [], bench: [], adds: [], swaps: [], flagged: [], started: new Set(), roster: [],
+       setIds: new Set(), oppRid: null, ageW: null, ageR: null, u26: null, hidden: null};
+  /* The opponent is the whole team object, lineups included, so the matchup
+     view can lay the two lineups side by side without recomputing anything. */
+  const oppT = meT && meT.oppRid != null ? (teams.find(t => t.rid === meT.oppRid) || null) : null;
   return {
     name: d.name, league: d.name, week: d.week, season: d.season,
     me,
-    opp: oppT ? {rid: oppT.rid, name: oppT.name, total: oppT.total, setTotal: oppT.setTotal} : null,
+    opp: oppT,
     rows: rows.slice().sort((a, b) => (b.o ?? -1) - (a.o ?? -1)),
     rostered: d.rostered, owner, teams,
     repl: meta.R, fa: freeAgents(rows, d.rostered, FA_DEPTH),
-    bye: [...d.bye].sort(), fetched: d.fetched, myRid: d.myRid
+    bye: [...d.bye].sort(), fetched: d.fetched, myRid: d.myRid,
+    rosterPositions: (d.rosterPositions || []).filter(s => !BENCH.has(s))
   };
 }
 

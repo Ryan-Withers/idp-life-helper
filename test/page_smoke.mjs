@@ -108,11 +108,26 @@ try{
     check(text.includes(opp.total.toFixed(1)), `opponent total ${opp.total.toFixed(1)} on the page`);
     check(text.includes(nameOf(MY_RID)), `my team name ${nameOf(MY_RID)}`);
     check(text.includes(nameOf(oppRoster.roster_id)), `opponent name ${nameOf(oppRoster.roster_id)}`);
-    check(text.includes(topRow.n), `top projected player ${topRow.n} (${topRow.o}) listed`);
+    /* The views are tabbed, so the Players and Matchup checks happen on their own tabs. */
+    const tab = async name => {
+      const b = page.getByRole("button", { name, exact: true }).first();
+      if(await b.count()){ await b.click(); await page.waitForTimeout(150); }   // single-page layout: nothing to click
+      return page.evaluate(() => document.body.innerText); };
+    const playersText = await tab("Players");
+    check(playersText.includes(topRow.n), `top projected player ${topRow.n} (${topRow.o}) listed on the Players tab`);
+    const matchText = await tab("Matchup");
+    check(matchText.includes(nameOf(oppRoster.roster_id)) && matchText.includes(opp.total.toFixed(1)), `Matchup tab shows the opponent and ${opp.total.toFixed(1)}`);
+    const leagueText = await tab("League");
+    check(F.rosters.every(ro => leagueText.includes(nameOf(ro.roster_id))), "League tab lists all 12 teams");
+    await tab("My team");
     check((text.match(/\bADD\b/g) || []).length >= adds, `at least ${adds} ADD marks (engine says ${adds} waiver slots)`);
-    check(!/—/.test(text), "no em dash in visible text");
-    const scrollW = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
-    check(scrollW[0] <= scrollW[1], `no horizontal page scroll (${scrollW[0]} <= ${scrollW[1]})`);
+    check(![text, playersText, matchText, leagueText].some(t => /—/.test(t)), "no em dash in visible text on any tab");
+    for(const name of ["My team", "Matchup", "Players", "League"]){
+      await tab(name);
+      const scrollW = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+      check(scrollW[0] <= scrollW[1], `no horizontal page scroll on ${name} (${scrollW[0]} <= ${scrollW[1]})`);
+    }
+    await tab("My team");
     const imgs = await page.evaluate(() => Array.from(document.images).filter(i => i.src.includes("sleepercdn")).length);
     check(imgs > 0, `${imgs} thumbnails requested from sleepercdn (all 404 here, fallback exercised)`);
     check(!errors.length, "no page errors" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));

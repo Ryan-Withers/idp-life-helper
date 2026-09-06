@@ -4,9 +4,9 @@ The old page (a draft board that grew a week mode) is being replaced by one
 in-season roster-management page. Three pieces are built independently against
 this contract, then assembled into a single self-contained `index.html`.
 
-- `src/engine.js`  — pure scoring/lineup engine, extracted verbatim. No DOM, no fetch.
-- `src/data.js`    — Sleeper fetches and ownership. Produces the raw inputs for the engine.
-- `src/ui.js` + `src/ui.css` + `src/ui.html` — presentation. Renders a MODEL. No fetch, no maths.
+- `src/engine.js` : pure scoring/lineup engine, extracted verbatim. No DOM, no fetch.
+- `src/data.js`   : Sleeper fetches and ownership. Produces the raw inputs for the engine.
+- `src/ui.js` + `src/ui.css` + `src/ui.html`: presentation. Renders a MODEL. No fetch, no maths.
 
 Every piece is plain browser JS (no modules, no build). Functions are globals.
 Everything gets inlined into `index.html` at assembly.
@@ -79,13 +79,17 @@ is a waiver pickup, not a lineup choice, and must be shown as such.
     flagged: [ROW...],       // rostered players with onBye/noproj/inj, whether starting or not
     ageW: 26.2, ageR: 26.8, u26: 46   // weighted starter age, roster mean age, % pts from <=26
   },
-  opp: { rid: 4, name: "CaliJam1", total: 310.4, setTotal: 298.1 } | null,
+  opp: TEAM | null,          // this week's opponent, same shape as a teams[] entry
   rows: [ROW...],            // EVERY player in the pool, sorted by o desc (the "all players" list)
   rostered: Set<id>,         // every id on any roster (to mark availability)
+  rosterPositions: ["QB","RB",...],       // the 19 starting slot names in league order (no BN/IR)
   name: "IDP Life", league: "IDP Life",   // league name (both keys, same value)
   owner: Map<id, rid>,       // who rosters each player
-  teams: [{ rid, name, total, setTotal, mine: bool, oppName, ageW, ageR, u26, hidden, lineup, bench }...],
+  teams: [{ rid, name, total, setTotal, mine: bool, oppRid, oppName, ageW, ageR, u26, hidden,
+            lineup, setLineup, bench, roster, adds, flagged, started: Set<id>, setIds: Set<id> }...],
                              // hidden = sum of hid over the optimal starters (points Sleeper does not see)
+                             // setLineup = [{slot, r: ROW|null}] in the same slot order as lineup: what is SET in Sleeper
+                             // me and opp are entries of this same shape (me adds swaps; opp is the full team or null)
   repl: {QB:19.9, ...},      // replacement levels (season VORP baseline, for the card)
   fa: {QB:[ROW...], ...},    // best free agents per position, several deep
   bye: ["GB","SEA"],
@@ -104,7 +108,22 @@ UI.openCard(row) / UI.closeCard()
 UI.boot(text, bad)        // the boot line, before the first render (progress or a failed first load)
 ```
 
-### Sections, top to bottom
+### Views
+
+The page is tabbed: My team (`#team`), Matchup (`#matchup`), Players (`#players`),
+League (`#league`). The header stays on every view. Every list on every view has a
+filter bar (search plus position chips) and the view-specific filters below; all
+filter state and the active tab survive `UI.render`, which runs on every poll.
+
+- My team: sections 2 to 6 below.
+- Matchup: opponent select (default this week's), Optimal / As set toggle,
+  slot-by-slot rows with my player left and theirs right, group summary
+  (offence, IDP, total), their flagged players.
+- Players: section 7 plus owner select, flagged-only, sort select.
+- League: section 8 with sortable headings and a name search; a row opens that
+  team in Matchup.
+
+### Sections, top to bottom (as first built; now spread across the views)
 
 1. **Header**: league name, "Week N", my team name and optimal total against
    opponent name and total. Refresh button. Feed dot.

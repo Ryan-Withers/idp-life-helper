@@ -13,27 +13,47 @@ No build step, no data files, no keys. The only hosts contacted are
 
 ## What the page shows
 
-1. **Header**: league, week, your optimal total against your opponent's, the
-   total of the lineup you actually have set, Refresh, and a feed dot for the
-   roster poll.
-2. **Lineup**: the Sleeper TEAM-tab look, one row per slot in roster order.
-   The big number on the right is OUR projection. Under the name: Sleeper's
-   own number and, for defenders, the points Sleeper does not see. Chips for
-   BYE, injury designation, "no proj", and ADD when the slot is best filled by
-   a free agent nobody rosters.
-3. **Start / sit**: the gap in points between the lineup set in Sleeper and
-   the optimal one, then the swaps, one per line, biggest gain first.
-4. **Flagged**: rostered players on bye, without a projection, or carrying a
-   designation, and whether each is starting.
-5. **Bench**: everyone rostered who is not starting, by projection.
-6. **Adds**: the best free agents per position and who they would replace.
-7. **All players**: every player in the pool by true projection, with owner,
-   Sleeper's number, hidden points, search, position filter, hide-rostered,
-   and a 300-row paint cap until "show all".
-8. **League**: every team's optimal total, set total, hidden points and
-   starter age.
-9. **Player card**: click any player for the stat line, which stats came from
-   Sleeper and which were backfilled, and the arithmetic to the point total.
+The header stays on every view: league, week, your optimal total against
+your opponent's, the total of the lineup you actually have set, Refresh, and
+a feed dot for the roster poll. Four tabs below it, each with a search box
+and position chips (ALL, QB, RB, WR, TE, DL, LB, DB, OFF, IDP) that filter
+every list on the view. The active tab and every filter survive the
+45-second roster poll.
+
+**My team** (`#team`)
+- Lineup in the Sleeper TEAM-tab look, one row per slot in roster order. The
+  big number on the right is OUR projection; under the name, Sleeper's own
+  number and, for defenders, the points Sleeper does not see. Chips for BYE,
+  injury designation, "no proj", and ADD when the slot is best filled by a
+  free agent nobody rosters.
+- Start / sit: the gap in points between the lineup set in Sleeper and the
+  optimal one, then the swaps, one per line, biggest gain first. Each player
+  coming in is paired with the weakest player going out who could stand in
+  his slot; a player out with nobody coming in is a plain SIT.
+- Flagged: bye, no projection or a designation, and whether each is starting.
+- Bench by projection. Adds: the six best free agents per position and who
+  they would replace.
+
+**Matchup** (`#matchup`)
+- Opponent select, defaulting to this week's opponent, with every other team
+  available. Optimal / As set toggle: the optimal lineups or the lineups
+  actually set in Sleeper.
+- One row per slot, your player left, theirs right, the higher projection
+  highlighted. Group summary (offence, IDP, total) with the difference, and
+  the opponent's flagged players.
+
+**Players** (`#players`)
+- Every player in the pool by true projection: rank, badge, owner, chips,
+  Sleeper's number, hidden points, OUR projection. Owner select (all, free
+  agents, you, any team), flagged-only, and sort by our projection, Sleeper,
+  hidden, VORP rank or age. 300 rows painted until "show all".
+
+**League** (`#league`)
+- Every team's optimal total, set total, hidden points and starter age.
+  Sort by any heading, search by name; a row opens that team in Matchup.
+
+Click any player anywhere for the card: the stat line, which stats came
+from Sleeper and which were backfilled, and the arithmetic to the total.
 
 ## Method
 
