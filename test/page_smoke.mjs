@@ -110,7 +110,8 @@ try{
     check(text.includes(nameOf(oppRoster.roster_id)), `opponent name ${nameOf(oppRoster.roster_id)}`);
     /* The views are tabbed, so the Players and Matchup checks happen on their own tabs. */
     const tab = async name => {
-      const b = page.getByRole("button", { name, exact: true }).first();
+      let b = page.getByRole("tab", { name, exact: true }).first();
+      if(!(await b.count())) b = page.getByRole("button", { name, exact: true }).first();
       if(await b.count()){ await b.click(); await page.waitForTimeout(150); }   // single-page layout: nothing to click
       return page.evaluate(() => document.body.innerText); };
     const playersText = await tab("Players");

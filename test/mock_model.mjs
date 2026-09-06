@@ -37,6 +37,17 @@ const REPL = {QB:14, RB:6, WR:5, TE:4, DL:3, LB:3, DB:2};
 // defensive pool.
 const POS_COUNT = {QB:150, RB:420, WR:520, TE:260, DL:390, LB:390, DB:390};
 
+// The league's 19 starting slots in order (no BN/IR), the same shape as
+// MODEL.rosterPositions. "Me" is built by hand below to hit specific
+// narrative beats (a bye, a no-projection starter, two adds...); every other
+// team is filled generically against this same slot order so any of them
+// can stand in as a Matchup opponent.
+const ROSTER_POSITIONS = ["QB","RB","RB","WR","WR","WR","FLEX","FLEX","FLEX","SUPER_FLEX",
+  "IDP_FLEX","IDP_FLEX","IDP_FLEX","DL","DL","LB","LB","DB","DB"];
+const SLOT_TAKES = {QB:["QB"], RB:["RB"], WR:["WR"], TE:["TE"], DL:["DL"], LB:["LB"], DB:["DB"],
+  FLEX:["RB","WR","TE"], SUPER_FLEX:["QB","RB","WR","TE"], IDP_FLEX:["DL","LB","DB"]};
+const takesFor = slot => SLOT_TAKES[slot] || [slot];
+
 const round2 = v => Math.round(v * 100) / 100;
 
 function makeName(rng){
@@ -169,6 +180,43 @@ function rankPool(rows){
   return rows;
 }
 
+// Weighted starter age (unweighted mean over starters, a 26 fallback for
+// unknown age; this is a fixture approximation, not a copy of engine.js's
+// real formula), plain roster mean age, and the share of starting points
+// from players 26 or under. Shared by "me" and every other team so the
+// League table's Age column is at least internally consistent.
+function computeAges(lineup, bench, total){
+  const starters = lineup.filter(s => s.r).map(s => s.r);
+  if(!starters.length) return {ageW: null, ageR: null, u26: null};
+  const ageW = round2(starters.reduce((s, r) => s + (r.a || 26), 0) / starters.length);
+  const rosterForAge = starters.concat(bench).filter(r => r.a != null);
+  const ageR = rosterForAge.length ? round2(rosterForAge.reduce((s, r) => s + r.a, 0) / rosterForAge.length) : null;
+  const youngPts = starters.filter(r => r.a != null && r.a <= 26).reduce((s, r) => s + r.o, 0);
+  const u26 = total ? Math.round((youngPts / total) * 100) : null;
+  return {ageW, ageR, u26};
+}
+
+// Greedy fill of ROSTER_POSITIONS from a roster: for each slot in order,
+// takes the best-projected unused player still eligible for it. What is
+// left over is the bench. No free-agent fill here (that narrative is
+// reserved for "me", built by hand below); a slot with nobody left
+// eligible is simply empty, same as the real assignment would leave it.
+function fillLineup(roster){
+  const remaining = roster.slice();
+  const lineup = ROSTER_POSITIONS.map(slot => {
+    const takes = takesFor(slot);
+    let bestIdx = -1, bestO = -Infinity;
+    remaining.forEach((r, i) => {
+      if(!r.elig || !r.elig.some(p => takes.includes(p))) return;
+      if(r.o > bestO){ bestO = r.o; bestIdx = i; }
+    });
+    if(bestIdx === -1) return {slot, takes, r: null, add: false};
+    const [chosen] = remaining.splice(bestIdx, 1);
+    return {slot, takes, r: chosen, add: false};
+  });
+  return {lineup, bench: remaining.sort((a, b) => b.o - a.o)};
+}
+
 export function mockModel(){
   const rng = mulberry32(0xC0FFEE ^ 20260905);
   const rows = rankPool(buildPool(rng));
@@ -258,39 +306,58 @@ export function mockModel(){
   const bench = [BENCH_QB_SET, RB4, WR5, BYE_WR, TE2, DL3, LB4, DB3, DB4].sort((a, b) => b.o - a.o);
 
   const total = lineup.reduce((s, x) => s + (x.r ? x.r.o : 0), 0);
+  // Optimal vs set, hand-authored rather than diffed: ADD_QB and ADD_DB are
+  // free-agent upgrades the set lineup does not have yet (one replaces a
+  // bench QB, one simply was not there, leaving that slot empty when set),
+  // and WR3 beats a weaker bench WR the set lineup started instead.
   const swaps = [
     {slot:"SUPER_FLEX", in:ADD_QB, out:BENCH_QB_SET, gain: round2(ADD_QB.o - BENCH_QB_SET.o), add:true},
     {slot:"IDP_FLEX",   in:ADD_DB, out:null,          gain: round2(ADD_DB.o), add:true},
     {slot:"WR",         in:WR3,    out:WR5,           gain: round2(WR3.o - WR5.o), add:false}
   ].sort((a, b) => b.gain - a.gain);
-  const setTotal = round2(total - swaps.reduce((s, x) => s + x.gain, 0));
+
+  // setLineup is the same 19 slots with each swap's `in` undone: put its
+  // `out` back (or leave the slot empty when out is null), so the one swap
+  // with no replacement is also this fixture's required empty SET slot.
+  const setLineup = lineup.map(s => ({slot: s.slot, r: s.r}));
+  swaps.forEach(sw => {
+    if(!sw.in) return;   // a plain sit has nothing in the optimal lineup to undo
+    const idx = setLineup.findIndex(s => s.r && s.r.id === sw.in.id);
+    if(idx !== -1) setLineup[idx] = {slot: setLineup[idx].slot, r: sw.out || null};
+  });
+  const setIds = new Set(setLineup.filter(s => s.r).map(s => s.r.id));
+  const setTotal = round2(setLineup.reduce((s, x) => s + (x.r ? x.r.o : 0), 0));
 
   const flagged = [DL2, NOPROJ_DB, BYE_WR];
+  const started = new Set(lineup.filter(s => s.r).map(s => s.r.id));
+  // Real roster only: the two ADD slots hold free agents nobody has picked
+  // up yet, so they are not actually "on" the roster.
+  const roster = lineup.filter(s => s.r && !s.add).map(s => s.r).concat(bench);
+  const adds = lineup.filter(s => s.add);
+  const {ageW, ageR, u26} = computeAges(lineup, bench, total);
+  const hidden = round2(lineup.reduce((s, x) => s + (x.r && typeof x.r.hid === "number" ? x.r.hid : 0), 0));
 
-  const starters = lineup.filter(s => s.r).map(s => s.r);
-  const ageW = round2(starters.reduce((s, r) => s + (r.a || 26), 0) / starters.length);
-  const rosterForAge = starters.concat(bench).filter(r => r.a != null);
-  const ageR = round2(rosterForAge.reduce((s, r) => s + r.a, 0) / rosterForAge.length);
-  const youngPts = starters.filter(r => r.a != null && r.a <= 26).reduce((s, r) => s + r.o, 0);
-  const u26 = Math.round((youngPts / total) * 100);
+  const rostered = new Set();
+  const owner = new Map();
+  roster.forEach(r => { rostered.add(r.id); owner.set(r.id, 11); });
 
-  const me = {
-    rid: 11, name: "witherssssss", total: round2(total), setTotal, lineup, bench,
-    adds: lineup.filter(s => s.add), swaps, flagged, ageW, ageR, u26
+  const myTeam = {
+    rid: 11, name: "witherssssss", mine: true,
+    total: round2(total), setTotal, hidden,
+    lineup, setLineup, bench, roster, adds, flagged, started, setIds,
+    ageW, ageR, u26,
+    oppRid: null, oppName: null   // filled in once paired with an opponent, below
   };
 
   // ---- the rest of the league: 11 other teams ----------------------------
   const TEAM_NAMES = ["CaliJam1","Thunderbirds","Iron Legion","Redzone Raiders","The Hidden Yards",
     "Blitz Kids","Grid Iron Giants","Dynasty Wolves","The Comeback Kids","Waiver Wire Warriors",
     "End Zone Elites"];
-  const rostered = new Set();
-  starters.filter(r => !lineup.find(s => s.r === r && s.add)).forEach(r => rostered.add(r.id));
-  bench.forEach(r => rostered.add(r.id));
-  const owner = new Map();
-  rostered.forEach(id => owner.set(id, me.rid));
 
-  const otherTeams = TEAM_NAMES.map((name, i) => {
-    const rid = i + 1;
+  // A full team object of the same shape as `myTeam`, built generically so
+  // any of them can stand in as a Matchup opponent. `noSet` mimics a manager
+  // who has not set a Sleeper lineup at all this week (setTotal stays null).
+  function buildOtherTeam(rid, name, noSet){
     const roster = [];
     for(let k = 0; k < 24; k++){
       const pos = POS_ORDER[Math.floor(rng() * POS_ORDER.length)];
@@ -298,28 +365,43 @@ export function mockModel(){
       if(!r) continue;
       used.add(r.id); rostered.add(r.id); owner.set(r.id, rid); roster.push(r);
     }
-    const total = round2(roster.reduce((s, r) => s + r.o, 0) * (0.55 + rng() * 0.1));
-    const setTotal = i === 3 ? null : round2(total - rng() * 14);
+    const {lineup, bench} = fillLineup(roster);
+    const total = round2(lineup.reduce((s, x) => s + (x.r ? x.r.o : 0), 0));
+    const setLineup = noSet
+      ? lineup.map(s => ({slot: s.slot, r: null}))
+      : lineup.map(s => ({slot: s.slot, r: s.r}));
+    const setIds = new Set(setLineup.filter(s => s.r).map(s => s.r.id));
+    const setTotal = noSet ? null : round2(setLineup.reduce((s, x) => s + (x.r ? x.r.o : 0), 0));
+    const flagged = roster.filter(r => r.onBye || r.noproj || r.inj).sort((a, b) => b.o - a.o);
+    const started = new Set(lineup.filter(s => s.r).map(s => s.r.id));
+    const hidden = round2(lineup.reduce((s, x) => s + (x.r && typeof x.r.hid === "number" ? x.r.hid : 0), 0));
+    const {ageW, ageR, u26} = computeAges(lineup, bench, total);
     return {
-      rid, slot: rid, name, total, setTotal, mine:false, oppName:"",
-      ageW: round2(24 + rng() * 6), ageR: round2(24 + rng() * 6),
-      u26: Math.round(20 + rng() * 50), hidden: round2(rng() * 12)
+      rid, name, mine: false,
+      total, setTotal, hidden,
+      lineup, setLineup, bench, roster, adds: [], flagged, started, setIds,
+      ageW, ageR, u26,
+      oppRid: null, oppName: null
     };
-  });
+  }
+
+  // rid starts at 101, well clear of myTeam.rid (11): opponent selection and
+  // League row-clicks now key off rid, so every team's must be unique.
+  const otherTeams = TEAM_NAMES.map((name, i) => buildOtherTeam(101 + i, name, i === 3));
 
   // Pair teams into six matchups: me vs otherTeams[0], then consecutive pairs.
-  otherTeams[0].oppName = me.name;
+  myTeam.oppRid = otherTeams[0].rid; myTeam.oppName = otherTeams[0].name;
+  otherTeams[0].oppRid = myTeam.rid; otherTeams[0].oppName = myTeam.name;
   for(let i = 1; i < otherTeams.length; i += 2){
-    if(otherTeams[i + 1]){ otherTeams[i].oppName = otherTeams[i + 1].name; otherTeams[i + 1].oppName = otherTeams[i].name; }
+    if(otherTeams[i + 1]){
+      otherTeams[i].oppRid = otherTeams[i + 1].rid; otherTeams[i].oppName = otherTeams[i + 1].name;
+      otherTeams[i + 1].oppRid = otherTeams[i].rid; otherTeams[i + 1].oppName = otherTeams[i].name;
+    }
   }
-  const opp = {rid: otherTeams[0].rid, name: otherTeams[0].name, total: otherTeams[0].total, setTotal: otherTeams[0].setTotal};
 
-  const meHidden = round2(starters.reduce((s, r) => s + (typeof r.hid === "number" && r.hid > 0 ? r.hid : 0), 0));
-  const teams = [
-    {rid: me.rid, slot: 0, name: me.name, total: me.total, setTotal: me.setTotal, mine:true,
-     oppName: opp.name, ageW: me.ageW, ageR: me.ageR, u26: me.u26, hidden: meHidden},
-    ...otherTeams
-  ];
+  const me = Object.assign({}, myTeam, {swaps});
+  const opp = otherTeams[0];   // this week's opponent: the full team object
+  const teams = [myTeam, ...otherTeams].sort((a, b) => b.total - a.total);
 
   // ---- free agents: six deep per position, excluding anyone now rostered -
   const fa = {};
@@ -334,7 +416,8 @@ export function mockModel(){
   fa.DB = [ADD_DB, ...fa.DB.filter(r => r.id !== ADD_DB.id)].slice(0, 6);
 
   return {
-    week: 5, season: 2026, league: "SF IDP LIFE $55 Dynasty",
-    me, opp, rows, rostered, teams, repl: REPL, fa, bye: BYE, fetched: new Date()
+    week: 5, season: 2026, name: "SF IDP LIFE $55 Dynasty", league: "SF IDP LIFE $55 Dynasty",
+    me, opp, rows, rostered, owner, teams, rosterPositions: ROSTER_POSITIONS,
+    repl: REPL, fa, bye: BYE, fetched: new Date()
   };
 }
