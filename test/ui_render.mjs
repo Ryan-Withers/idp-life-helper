@@ -32,6 +32,7 @@ function assert(cond, msg){
 const OFF_POS = ["QB", "RB", "WR", "TE"];
 const IDP_POS = ["DL", "LB", "DB"];
 const numOr = (v, d) => (typeof v === "number" && !Number.isNaN(v)) ? v : d;
+const DOT = "\u00b7";   // what the UI paints wherever the MODEL has no sample
 
 function posMatchesNode(elig, pos){
   if(pos === "ALL") return true;
@@ -87,6 +88,7 @@ const uiJs = readFileSync(path.join(SRC, "ui.js"), "utf8");
 
 const page = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>ui test</title>
 <style>${css}</style>
 </head><body>
@@ -201,8 +203,10 @@ async function runViewport(width, height, shots){
   assert(rowCount === wrCount, `WR chip shows ${wrCount} lineup rows (${rowCount})`);
   assert((await page.locator("#team-count").textContent()) === `${wrCount} of 19`, "team count reads correctly after the WR chip");
   const wrOnlyEligible = await page.evaluate(() =>
-    [...document.querySelectorAll("#team-lineup-rows .prow:not(.empty)")].every(el => el.querySelector(".bdg-wr, .bdg-flex")));
+    [...document.querySelectorAll("#team-lineup-rows .prow:not(.empty)")].every(el => el.querySelector(".pos-wr, .pos-flex")));
   assert(wrOnlyEligible, "every non-empty visible lineup row after the WR chip is WR or a flex that can hold one");
+  const noBadges = await page.evaluate(() => document.querySelectorAll(".badge, [class*='bdg-']").length);
+  assert(noBadges === 0, "no coloured position badges anywhere on the page (" + noBadges + ")");
 
   const wrSlot = model.me.lineup.find(s => s.r && s.r.elig.includes("WR"));
   const wrTerm = wrSlot.r.n.toLowerCase();
@@ -229,6 +233,46 @@ async function runViewport(width, height, shots){
     assert(msgCount === 1, "QB chip leaves a message when nothing flagged matches");
   }
   await page.click('#team-posfilter button[data-pos="ALL"]');
+
+  /* ---- form at a glance: AVG, L3 and SNAP on every lineup and bench row,
+     a middle dot (never a 0) wherever the MODEL has no sample ------------ */
+  const formOf = sel => page.evaluate(s2 => [...document.querySelectorAll(s2)].map(el => ({
+    pid: el.getAttribute("data-pid"),
+    keys: [...el.querySelectorAll(".form .fk")].map(k => k.textContent.trim()),
+    vals: [...el.querySelectorAll(".form .fv")].map(v => v.textContent.trim()),
+    meta: (el.querySelector(".pmeta") || {textContent: ""}).textContent
+  })), sel);
+
+  const lineupForm = await formOf("#team-lineup-rows .prow[data-pid]");
+  const benchForm = await formOf("#sec-bench .prow[data-pid]");
+  const WANT_KEYS = JSON.stringify(["AVG", "L3", "SNAP"]);
+  assert(lineupForm.length > 0 && lineupForm.every(r => JSON.stringify(r.keys) === WANT_KEYS),
+    `every lineup row carries AVG, L3 and SNAP (${lineupForm.length} rows)`);
+  assert(benchForm.length > 0 && benchForm.every(r => JSON.stringify(r.keys) === WANT_KEYS),
+    `every bench row carries AVG, L3 and SNAP (${benchForm.length} rows)`);
+  assert(lineupForm.every(r => r.vals.length === 3) && benchForm.every(r => r.vals.length === 3),
+    "every lineup and bench row shows three form values");
+
+  const noSampleIds = new Set(model.rows.filter(r => r.avg === null && r.l3 === null && r.snap === null).map(r => r.id));
+  const DOTS = JSON.stringify([DOT, DOT, DOT]);
+  const lineupNull = lineupForm.filter(r => noSampleIds.has(r.pid));
+  const benchNull = benchForm.filter(r => noSampleIds.has(r.pid));
+  assert(lineupNull.length > 0 && lineupNull.every(r => JSON.stringify(r.vals) === DOTS),
+    `a lineup row with no sample reads as three middle dots (${lineupNull.length} such rows)`);
+  assert(benchNull.length > 0 && benchNull.every(r => JSON.stringify(r.vals) === DOTS),
+    `a bench row with no sample reads as three middle dots (${benchNull.length} such rows)`);
+  assert(lineupForm.some(r => r.vals.every(v => v !== DOT)), "at least one lineup row shows real form figures");
+  assert(!lineupForm.some(r => noSampleIds.has(r.pid) && r.vals.some(v => /^0(\.0)?%?$/.test(v))),
+    "a player with no games never reads as a zero");
+  assert(lineupForm.every(r => /\bgp\b/.test(r.meta)), "every lineup row states the games-played sample");
+  assert(lineupForm.some(r => noSampleIds.has(r.pid) && r.meta.includes(DOT + " gp")),
+    "a player with no games shows a middle dot for his game count");
+
+  // Snap share published as nothing at all, rather than as a zero.
+  const noSnapIds = new Set(model.rows.filter(r => r.snap === null && r.avg !== null).map(r => r.id));
+  const noSnapShown = lineupForm.concat(benchForm).filter(r => noSnapIds.has(r.pid));
+  assert(noSnapShown.length > 0 && noSnapShown.every(r => r.vals[2] === DOT && r.vals[0] !== DOT),
+    `a player with points but no snap share shows points and a dot for SNAP (${noSnapShown.length})`);
 
   /* ========================================================= Matchup === */
   await page.click("#tab-matchup");
@@ -289,40 +333,204 @@ async function runViewport(width, height, shots){
   /* ========================================================= Players === */
   await page.click("#tab-players");
 
-  let cappedCount = await page.locator("#players-list .aprow").count();
-  assert(cappedCount === 300, "players list paints exactly 300 rows initially (" + cappedCount + ")");
+  // Column headings, with the sort arrow stripped off.
+  const heads = () => page.evaluate(() =>
+    [...document.querySelectorAll("#players-thead-row th")].map(th => th.textContent.replace(/[▲▼]/g, "").trim()));
+  const bodyRows = () => page.locator("#players-body tr");
+  const ALWAYS = ["#", "PLAYER", "PROJ", "SLP", "HID", "AVG", "L3", "SNAP", "GP"];
+
+  let cappedCount = await bodyRows().count();
+  assert(cappedCount === 300, "players table paints exactly 300 rows initially (" + cappedCount + ")");
+  assert((await page.locator("#players-table thead").count()) === 1, "players list is a real table with a thead");
+  let cols = await heads();
+  assert(JSON.stringify(cols.slice(0, 9)) === JSON.stringify(ALWAYS),
+    "the nine always-present columns lead the table (" + cols.slice(0, 9).join(",") + ")");
+
+  /* ---- the column set follows the Columns select ---------------------- */
+  const commonCols = cols.slice();
+  assert(["VORP", "PRK", "AGE", "TKL", "REC"].every(c => commonCols.includes(c)),
+    "Auto on the ALL chip gives the common columns (" + commonCols.join(",") + ")");
+
+  await page.selectOption("#players-columns", "off");
+  const offCols = await heads();
+  assert(["PA YD", "PA TD", "RU ATT", "RU YD", "TGT", "REC", "RE YD", "RE TD", "FUM"].every(c => offCols.includes(c)),
+    "Columns=Offence gives the passing, rushing and receiving columns (" + offCols.join(",") + ")");
+  assert(JSON.stringify(offCols) !== JSON.stringify(commonCols), "Columns=Offence changes the thead from Common");
+  assert(JSON.stringify(offCols.slice(0, 9)) === JSON.stringify(ALWAYS), "the always-present columns survive a column-set change");
+
+  await page.selectOption("#players-columns", "def");
+  const defCols = await heads();
+  assert(["TKL", "SOLO", "AST", "SACK", "TFL", "QBH", "PD", "INT", "FF", "FR", "TD"].every(c => defCols.includes(c)),
+    "Columns=Defence gives the tackle, sack and takeaway columns (" + defCols.join(",") + ")");
+  assert(JSON.stringify(defCols) !== JSON.stringify(offCols), "Columns=Defence changes the thead from Offence");
+
+  await page.selectOption("#players-columns", "common");
+  assert(JSON.stringify(await heads()) === JSON.stringify(commonCols), "Columns=Common restores the common thead");
+
+  /* ---- and, on Auto, the position filter ------------------------------ */
+  await page.selectOption("#players-columns", "auto");
+  await page.click('#players-posfilter button[data-pos="QB"]');
+  const autoQb = await heads();
+  assert(JSON.stringify(autoQb) === JSON.stringify(offCols), "Auto + QB chip gives the offence columns");
+  await page.click('#players-posfilter button[data-pos="LB"]');
+  const autoLb = await heads();
+  assert(JSON.stringify(autoLb) === JSON.stringify(defCols), "Auto + LB chip gives the defence columns");
+  assert(JSON.stringify(autoLb) !== JSON.stringify(autoQb), "the thead changes when the position filter changes under Auto");
+  await page.click('#players-posfilter button[data-pos="IDP"]');
+  assert(JSON.stringify(await heads()) === JSON.stringify(defCols), "Auto + IDP chip stays on the defence columns");
+  await page.click('#players-posfilter button[data-pos="ALL"]');
+  assert(JSON.stringify(await heads()) === JSON.stringify(commonCols), "Auto + ALL chip returns to the common columns");
+
+  /* ---- Source: the same columns, read off a different stat line ------- */
+  await page.click('#players-posfilter button[data-pos="QB"]');   // offence columns, Auto
+  const firstRowCells = () => page.evaluate(() => {
+    const tr = document.querySelector("#players-body tr");
+    return tr ? [...tr.children].map(td => td.textContent.trim()) : [];
+  });
+  const weekCells = await firstRowCells();
+  await page.click('#players-source button[data-src="season"]');
+  const seasonCells = await firstRowCells();
+  assert((await heads()).join(",") === offCols.join(","), "Source=Season keeps the same column names");
+  assert(weekCells.length === seasonCells.length && weekCells.length > 9, "same shape of row under both sources");
+  const changedCells = weekCells.filter((v, i) => v !== seasonCells[i]).length;
+  assert(changedCells > 0, `Source=Season changes at least one cell of the top row (${changedCells} changed)`);
+  assert(weekCells[1] === seasonCells[1], "the player cell itself does not change with the source");
+  await page.click('#players-source button[data-src="week"]');
+  assert(JSON.stringify(await firstRowCells()) === JSON.stringify(weekCells), "Source=Week proj restores the projected line");
+
+  /* ---- every column sorts, both ways, nulls last ---------------------- */
+  const colText = label => page.evaluate(lbl => {
+    const ths = [...document.querySelectorAll("#players-thead-row th")];
+    const i = ths.findIndex(th => th.textContent.replace(/[▲▼]/g, "").trim() === lbl);
+    if(i === -1) return null;
+    return [...document.querySelectorAll("#players-body tr")].map(tr => tr.children[i].textContent.trim());
+  }, label);
+  const numOf = t => t === DOT ? null : parseFloat(String(t).replace("%", "").replace("+", ""));
+  function monotonic(vals, dir){
+    const nums = vals.map(numOf);
+    const firstNull = nums.indexOf(null);
+    const nullsLast = firstNull === -1 || nums.slice(firstNull).every(v => v === null);
+    let ordered = true;
+    for(let i = 1; i < nums.length; i++){
+      if(nums[i - 1] == null || nums[i] == null) continue;
+      if(dir === "desc" ? nums[i] > nums[i - 1] + 1e-9 : nums[i] < nums[i - 1] - 1e-9) ordered = false;
+    }
+    return {ordered, nullsLast, nulls: nums.filter(v => v === null).length};
+  }
+
+  // My own 25 players: a small enough set that every row is painted, so the
+  // tail of the sort (where the empty values live) is actually on the page.
+  await page.click('#players-posfilter button[data-pos="ALL"]');
+  await page.selectOption("#players-owner", "you");
+  for(const label of ["SNAP", "TKL"]){
+    const th = `#players-thead-row th:nth-child(${(await heads()).indexOf(label) + 1})`;
+    await page.click(th);
+    let vals = await colText(label);
+    let m = monotonic(vals, "desc");
+    assert((await page.getAttribute(th, "aria-sort")) === "descending", `${label} heading is marked descending on the first click`);
+    assert(m.ordered, `${label} sorts descending`);
+    assert(m.nullsLast && m.nulls > 0, `${label} descending keeps its ${m.nulls} empty values last`);
+
+    await page.click(th);
+    vals = await colText(label);
+    m = monotonic(vals, "asc");
+    assert((await page.getAttribute(th, "aria-sort")) === "ascending", `${label} heading is marked ascending on the second click`);
+    assert(m.ordered, `${label} sorts ascending`);
+    assert(m.nullsLast && m.nulls > 0, `${label} ascending still keeps its ${m.nulls} empty values last`);
+    const othersNone = await page.evaluate(k => [...document.querySelectorAll("#players-thead-row th")]
+      .filter(th2 => th2.textContent.replace(/[▲▼]/g, "").trim() !== k)
+      .every(th2 => th2.getAttribute("aria-sort") === "none"), label);
+    assert(othersNone, `only the ${label} heading claims a sort`);
+  }
+
+  // The player column sorts by name, not by number. The name is the cell's
+  // first text node: the chips after it are not part of it.
+  const playerTh = "#players-thead-row th:nth-child(2)";
+  await page.click(playerTh);
+  const names = await page.evaluate(() =>
+    [...document.querySelectorAll("#players-body tr .p-name")].map(el => el.childNodes[0].textContent.trim()));
+  const sortedNames = names.slice().sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  assert(JSON.stringify(names) === JSON.stringify(sortedNames), "PLAYER sorts alphabetically");
+
+  // Back to the default: our projection, descending.
+  const projTh = "#players-thead-row th:nth-child(3)";
+  await page.click(projTh);
+  assert((await page.getAttribute(projTh, "aria-sort")) === "descending", "PROJ sorts descending on a fresh click");
+  await page.selectOption("#players-owner", "all");
+  const bySleeperTh = "#players-thead-row th:nth-child(4)";
+  await page.click(bySleeperTh);
+  const firstPid = await bodyRows().first().getAttribute("data-pid");
+  assert(firstPid === bySleeper[0].id, `sorting by SLP puts ${bySleeper[0].id} first (${firstPid})`);
+  await page.click(projTh);
+  const firstProj = await bodyRows().first().getAttribute("data-pid");
+  assert(firstProj === model.rows[0].id, `sorting by PROJ puts ${model.rows[0].id} first (${firstProj})`);
+
+  /* ---- the frame scrolls sideways, the page never does ---------------- */
+  await page.selectOption("#players-columns", "def");
+  const scrollState = await page.evaluate(() => {
+    const f = document.getElementById("players-frame");
+    return {
+      pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+      frameOver: f.scrollWidth - f.clientWidth,
+      overflowX: getComputedStyle(f).overflowX
+    };
+  });
+  assert(scrollState.pageOverflow <= 0, `the page does not scroll sideways with the widest column set (${scrollState.pageOverflow})`);
+  assert(scrollState.frameOver > 0, `the players table scrolls sideways inside its own frame (${scrollState.frameOver}px over)`);
+  assert(scrollState.overflowX === "auto" || scrollState.overflowX === "scroll", "the players frame owns the horizontal scroll");
+  const stuck = await page.evaluate(() => {
+    const f = document.getElementById("players-frame");
+    f.scrollLeft = 300;
+    const rk = f.querySelector("tbody .c-rk"), pl = f.querySelector("tbody .c-player"), th = f.querySelector("thead th");
+    const fb = f.getBoundingClientRect();
+    const out = {
+      rk: Math.round(rk.getBoundingClientRect().left - fb.left),
+      player: Math.round(pl.getBoundingClientRect().left - fb.left),
+      head: Math.round(th.getBoundingClientRect().top - fb.top),
+      scrolled: f.scrollLeft
+    };
+    f.scrollLeft = 0;
+    return out;
+  });
+  assert(stuck.scrolled > 0 && stuck.rk <= 1 && stuck.player > 0 && stuck.player < 60,
+    `the # and PLAYER columns stay stuck to the left while the table scrolls (${JSON.stringify(stuck)})`);
+  await page.selectOption("#players-columns", "auto");
+
+  /* ---- the filters still filter -------------------------------------- */
   await page.click("#players-showall");
-  let fullCount = await page.locator("#players-list .aprow").count();
-  assert(fullCount === EXPECT.total, `players list shows the full ${EXPECT.total} after "show all" (${fullCount})`);
+  let fullCount = await bodyRows().count();
+  assert(fullCount === EXPECT.total, `players table shows the full ${EXPECT.total} after "show all" (${fullCount})`);
+  assert((await page.locator("#players-count").textContent()) === `${EXPECT.total} of ${EXPECT.total} shown`,
+    "the count reads N of M shown");
 
   await page.fill("#players-search", "zz");
-  let zzCount = await page.locator("#players-list .aprow").count();
+  let zzCount = await bodyRows().count();
   assert(zzCount === EXPECT.zz, `search "zz" narrows players to ${EXPECT.zz} (${zzCount})`);
   await page.fill("#players-search", "");
 
   await page.selectOption("#players-owner", "fa");
-  let ownerCount = await page.locator("#players-list .aprow").count();
+  let ownerCount = await bodyRows().count();
   assert(ownerCount === EXPECT.notRostered, `owner "Free agents" leaves ${EXPECT.notRostered} unrostered rows (${ownerCount})`);
   const faPidsOk = await page.evaluate((rosteredIds) => {
     const rostered = new Set(rosteredIds);
-    return [...document.querySelectorAll("#players-list .aprow")].every(el => !rostered.has(el.getAttribute("data-pid")));
+    return [...document.querySelectorAll("#players-body tr")].every(el => !rostered.has(el.getAttribute("data-pid")));
   }, [...model.rostered]);
   assert(faPidsOk, "every row shown under \"Free agents\" is actually unrostered");
 
   await page.selectOption("#players-owner", "you");
-  ownerCount = await page.locator("#players-list .aprow").count();
+  ownerCount = await bodyRows().count();
   assert(ownerCount === EXPECT.mine, `owner "You" leaves only my ${EXPECT.mine} rows (${ownerCount})`);
 
   await page.selectOption("#players-owner", "all");
   await page.check("#players-flagged-only");
-  let flagOnlyCount = await page.locator("#players-list .aprow").count();
+  let flagOnlyCount = await bodyRows().count();
   assert(flagOnlyCount === EXPECT.flaggedAll, `flagged only narrows to ${EXPECT.flaggedAll} (${flagOnlyCount})`);
   await page.uncheck("#players-flagged-only");
 
-  await page.selectOption("#players-sort", "sleeper");
-  const firstPid = await page.locator("#players-list .aprow").first().getAttribute("data-pid");
-  assert(firstPid === bySleeper[0].id, `sort by Sleeper puts ${bySleeper[0].id} first (${firstPid})`);
-  await page.selectOption("#players-sort", "our");
+  // A row opens the same player card as any other list on the page.
+  await bodyRows().first().click();
+  assert(await page.evaluate(() => !document.getElementById("cardwrap").hidden), "clicking a players row opens the player card");
+  await page.keyboard.press("Escape");
 
   /* ========================================================== League === */
   await page.click("#tab-league");
@@ -388,7 +596,9 @@ async function runViewport(width, height, shots){
   await page.click("#tab-players");
   await page.selectOption("#players-owner", "you");
   await page.check("#players-flagged-only");
-  await page.selectOption("#players-sort", "sleeper");
+  await page.selectOption("#players-columns", "def");
+  await page.click('#players-source button[data-src="season"]');
+  await page.click("#players-thead-row th:nth-child(8)");   // SNAP
   await page.fill("#players-search", "persistencecheck-players");
 
   await page.click("#tab-league");
@@ -412,7 +622,11 @@ async function runViewport(width, height, shots){
 
   assert((await page.$eval("#players-owner", el => el.value)) === "you", "Players owner selection preserved after re-render");
   assert((await page.isChecked("#players-flagged-only")) === true, "Players flagged-only preserved after re-render");
-  assert((await page.$eval("#players-sort", el => el.value)) === "sleeper", "Players sort preserved after re-render");
+  assert((await page.$eval("#players-columns", el => el.value)) === "def", "Players column set preserved after re-render");
+  assert((await page.getAttribute('#players-source button[data-src="season"]', "aria-pressed")) === "true",
+    "Players stat source preserved after re-render");
+  assert((await page.getAttribute("#players-thead-row th:nth-child(8)", "aria-sort")) !== "none",
+    "Players sorted column preserved after re-render");
   // Players' search input itself is not re-synced on a background render
   // (typing state is never written by UI.render), but its filter state is:
   await page.click("#tab-players");
@@ -435,7 +649,8 @@ try{
     team: "ui_390_team.png", matchup: "ui_390_matchup.png",
     players: "ui_390_players.png", league: "ui_390_league.png"
   });
-  await runViewport(1280, 900, {team: "ui_1280_team.png", matchup: "ui_1280_matchup.png"});
+  await runViewport(1280, 900, {team: "ui_1280_team.png", matchup: "ui_1280_matchup.png",
+    players: "ui_1280_players.png", league: "ui_1280_league.png"});
 }catch(e){
   console.error("FAIL uncaught exception during test run:", e);
   failed = true;

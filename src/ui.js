@@ -10,14 +10,32 @@
 
   const ESC_MAP = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ESC_MAP[c]);
-  // One decimal, "?" for anything that isn't a real number.
-  const n1 = v => (typeof v !== "number" || Number.isNaN(v)) ? "?" : (Math.round(v * 10) / 10).toFixed(1);
+  const isNum = v => typeof v === "number" && !Number.isNaN(v) && Number.isFinite(v);
+  // One decimal, "?" for anything that isn't a real number. Used for the
+  // projections and totals, which the MODEL always has a number for.
+  const n1 = v => !isNum(v) ? "?" : (Math.round(v * 10) / 10).toFixed(1);
   // Same, with an explicit + on non-negative values (for gains/deltas).
-  const signed1 = v => (typeof v !== "number" || Number.isNaN(v)) ? "?" : (v >= 0 ? "+" : "") + n1(v);
-  const numOr = (v, d) => (typeof v === "number" && !Number.isNaN(v)) ? v : d;
-  const MID = '<span class="mid">&middot;</span>';
+  const signed1 = v => !isNum(v) ? "?" : (v >= 0 ? "+" : "") + n1(v);
+  const numOr = (v, d) => isNum(v) ? v : d;
 
-  const BADGE_LABEL = {QB:"QB", RB:"RB", WR:"WR", TE:"TE", DL:"DL", LB:"LB", DB:"DB",
+  // A middle dot stands for "we have no sample for this", everywhere. Never
+  // a 0 and never a "?": a zero would read as a real measurement.
+  const DOT = "·";
+  const MID = '<span class="mid">' + DOT + '</span>';
+
+  const fmtPts = v => isNum(v) ? (Math.round(v * 10) / 10).toFixed(1) : DOT;
+  const fmtSgn = v => isNum(v) ? (v >= 0 ? "+" : "") + fmtPts(v) : DOT;
+  const fmtPct = v => isNum(v) ? Math.round(v) + "%" : DOT;
+  const fmtInt = v => isNum(v) ? String(Math.round(v)) : DOT;
+  // A count: whole once it is big enough for a fraction not to matter, one
+  // decimal below that, since a projected 0.4 sacks must not read as "0".
+  const fmtCount = v => {
+    if(!isNum(v)) return DOT;
+    const r = Math.round(v * 10) / 10;
+    return (Math.abs(r) >= 10 || Number.isInteger(r)) ? String(Math.round(r)) : r.toFixed(1);
+  };
+
+  const SLOT_LABEL = {QB:"QB", RB:"RB", WR:"WR", TE:"TE", DL:"DL", LB:"LB", DB:"DB",
     FLEX:"FLX", SUPER_FLEX:"SF", IDP_FLEX:"IDP", WRRB_FLEX:"W/R", REC_FLEX:"W/T"};
   const POS_ORDER = ["QB","RB","WR","TE","DL","LB","DB"];
   const OFF_POS = ["QB","RB","WR","TE"];
@@ -35,35 +53,72 @@
   };
   const takesFor = slot => SLOT_TAKES[slot] || [slot];
 
-  function badge(code, small){
-    const label = BADGE_LABEL[code] || code;
-    return `<div class="badge${small ? " sm" : ""} bdg-${String(code).toLowerCase()}">${esc(label)}</div>`;
+  // The position column: small plain uppercase text in a fixed-width column,
+  // never a coloured badge. The per-position class carries no colour, it is
+  // only there for anything that needs to find the cell.
+  function pos(code){
+    const label = SLOT_LABEL[code] || code;
+    return `<span class="pos pos-${String(code).toLowerCase()}">${esc(label)}</span>`;
   }
 
-  // Circular thumbnail. On error we only ever toggle a class: the image gets
-  // display:none (no broken-image glyph) and the parent's own background
-  // shows through as a plain circle. Never a second request.
+  // Small square thumbnail. On error we only ever toggle a class: the image
+  // gets display:none (no broken-image glyph) and the parent's own
+  // background shows through. Never a second request.
   function avatar(id){
     const src = `https://sleepercdn.com/content/nfl/players/thumb/${encodeURIComponent(id)}.jpg`;
     return `<span class="ava"><img src="${src}" alt="" loading="lazy" ` +
       `onerror="this.onerror=null;this.classList.add('err')"></span>`;
   }
 
+  // Injury designations are shown as a short rectangle with the full word on
+  // the title, so the row stays one line at phone width.
+  const INJ_SHORT = {Questionable:"Q", Doubtful:"D", Out:"OUT", "Injured Reserve":"IR",
+    IR:"IR", PUP:"PUP", Sus:"SUS", COV:"COV", DNR:"DNR", NA:"NA"};
+  const injShort = s => INJ_SHORT[s] || String(s).slice(0, 3).toUpperCase();
+
   function chips(r, isAdd){
     let out = "";
-    if(r.onBye) out += '<span class="chip chip-bye">BYE</span>';
-    if(r.inj) out += `<span class="chip chip-inj">${esc(r.inj)}</span>`;
-    if(r.noproj) out += '<span class="chip chip-noproj">no proj</span>';
-    if(isAdd) out += '<span class="chip chip-add">ADD</span>';
+    if(r.onBye) out += '<span class="chip">BYE</span>';
+    if(r.inj) out += `<span class="chip" title="${esc(r.inj)}">${esc(injShort(r.inj))}</span>`;
+    if(r.noproj) out += '<span class="chip" title="Sleeper publishes no projection for him">NO PROJ</span>';
+    if(isAdd) out += '<span class="chip c-add">ADD</span>';
     return out;
   }
 
-  // "Sleeper 28.4 - hidden +1.8", the hidden half only when there is a
-  // positive amount of it to show.
-  function slpLine(r){
-    let s = `Sleeper ${n1(r.sleep)}`;
-    if(typeof r.hid === "number" && r.hid > 0) s += ` ${MID} hidden ${signed1(r.hid)}`;
-    return s;
+  /* ------------------------------------------------------------- form
+     AVG, L3 and SNAP, the three figures that say whether this week's
+     projection is backed by anything. L3 takes the only colour, and only
+     when the trend is worth a manager's attention. */
+
+  function trendCls(r){
+    if(!isNum(r.trend)) return "";
+    if(r.trend >= 1) return " up";
+    if(r.trend <= -1) return " dn";
+    return "";
+  }
+
+  function formBlock(r){
+    return '<div class="form">' +
+      `<span class="f"><span class="fk">AVG</span><span class="fv">${fmtPts(r.avg)}</span></span>` +
+      `<span class="f"><span class="fk">L3</span><span class="fv${trendCls(r)}">${fmtPts(r.l3)}</span></span>` +
+      `<span class="f"><span class="fk">SNAP</span><span class="fv">${fmtPct(r.snap)}</span></span>` +
+      '</div>';
+  }
+
+  // "2 gp" is the honest size of the sample the three figures above came
+  // from. Nobody with no games reads as a zero.
+  function gpText(r){
+    const g = isNum(r.gpNow) && r.gpNow > 0 ? String(Math.round(r.gpNow)) : DOT;
+    const thin = isNum(r.gpNow) && r.gpNow > 0 && r.gpNow < 3;
+    return thin ? `<span class="thin">${g} gp</span>` : `${g} gp`;
+  }
+
+  // "WR - SEA · Slp 28.4 · Hid +1.8 · 2 gp", the hidden part only when there
+  // is a positive amount of it to show.
+  function metaLine(r){
+    let s = `${esc(r.p)} - ${esc(r.t)} ${DOT} Slp ${n1(r.sleep)}`;
+    if(isNum(r.hid) && r.hid > 0) s += ` ${DOT} Hid ${signed1(r.hid)}`;
+    return s + ` ${DOT} ` + gpText(r);
   }
 
   /* ------------------------------------------------------------- filtering
@@ -72,12 +127,12 @@
      ROW matches the chip through his own `elig`; an empty slot has no ROW,
      so it matches through the slot's own `takes` list instead. */
 
-  function posMatches(elig, pos){
-    if(pos === "ALL") return true;
+  function posMatches(elig, p){
+    if(p === "ALL") return true;
     if(!elig || !elig.length) return false;
-    if(pos === "OFF") return elig.some(p => OFF_POS.indexOf(p) !== -1);
-    if(pos === "IDP") return elig.some(p => IDP_POS.indexOf(p) !== -1);
-    return elig.indexOf(pos) !== -1;
+    if(p === "OFF") return elig.some(x => OFF_POS.indexOf(x) !== -1);
+    if(p === "IDP") return elig.some(x => IDP_POS.indexOf(x) !== -1);
+    return elig.indexOf(p) !== -1;
   }
 
   function searchHay(n, t, p, elig){
@@ -145,7 +200,9 @@
   let matchupOppRid = null;     // explicit choice; null = follow model.opp
   let matchupMode = "optimal";  // "optimal" | "set"
 
-  let playersFilter = {search:"", pos:"ALL", owner:"all", flaggedOnly:false, sort:"our", showAll:false};
+  let playersFilter = {search:"", pos:"ALL", owner:"all", flaggedOnly:false, showAll:false,
+    source:"week", columns:"auto"};
+  let playersSort = {key:"o", dir:"desc"};
   const AP_CAP = 300;
 
   let leagueFilter = {search:"", key:"total", dir:"desc"};
@@ -183,49 +240,50 @@
     const r = slot.r;
     if(!r){
       const extra = slot.takes && slot.takes.length > 1 ? ` (${slot.takes.join("/")})` : "";
-      return `<div class="prow empty">${badge(slot.slot)}` +
-        `<div class="empty-txt">Empty ${esc(BADGE_LABEL[slot.slot] || slot.slot)} slot${esc(extra)}</div></div>`;
+      return `<div class="prow empty">${pos(slot.slot)}` +
+        `<div class="empty-txt">Empty ${esc(SLOT_LABEL[slot.slot] || slot.slot)} slot${esc(extra)}</div></div>`;
     }
-    return `<div class="prow${slot.add ? " add" : ""}" data-pid="${esc(r.id)}">${badge(slot.slot)}${avatar(r.id)}` +
-      `<div class="prow-main">` +
-        `<div class="prow-name">${esc(r.n)}${chips(r, slot.add)}</div>` +
-        `<div class="prow-sub">${esc(r.p)} - ${esc(r.t)}</div>` +
-        `<div class="prow-slp">${slpLine(r)}</div>` +
-      `</div><div class="prow-proj">${n1(r.o)}</div></div>`;
+    return `<div class="prow${slot.add ? " add" : ""}" data-pid="${esc(r.id)}">${pos(slot.slot)}${avatar(r.id)}` +
+      `<div class="pmain">` +
+        `<div class="pname">${esc(r.n)}${chips(r, slot.add)}</div>` +
+        `<div class="pmeta">${metaLine(r)}</div>` +
+      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
   }
 
   function benchRowHTML(r){
-    return `<div class="prow dim" data-pid="${esc(r.id)}">${badge(r.p)}${avatar(r.id)}` +
-      `<div class="prow-main">` +
-        `<div class="prow-name">${esc(r.n)}${chips(r, false)}</div>` +
-        `<div class="prow-sub">${esc(r.p)} - ${esc(r.t)}</div>` +
-        `<div class="prow-slp">${slpLine(r)}</div>` +
-      `</div><div class="prow-proj">${n1(r.o)}</div></div>`;
+    return `<div class="prow dim" data-pid="${esc(r.id)}">${pos(r.p)}${avatar(r.id)}` +
+      `<div class="pmain">` +
+        `<div class="pname">${esc(r.n)}${chips(r, false)}</div>` +
+        `<div class="pmeta">${metaLine(r)}</div>` +
+      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
   }
 
+  // "START name over other @ SLOT   +23.6", or a plain SIT when nobody comes
+  // in for his slot.
   function swapRowHTML(sw){
-    // A player out with nobody coming in for his slot: a plain sit.
     if(!sw.in)
-      return `<div class="swap-row"><span class="swap-nobadge"></span>` +
-        `<span class="swap-out" data-pid="${esc(sw.out.id)}"><b>SIT</b> ${esc(sw.out.n)}</span>` +
+      return `<div class="swap-row is-sit"><span class="chip c-sit">SIT</span>` +
+        `<span class="swap-txt"><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>` +
+        `<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span></span>` +
         `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
     const outHtml = sw.out
-      ? `<span class="swap-out" data-pid="${esc(sw.out.id)}">OUT ${esc(sw.out.n)}</span>`
-      : '<span class="swap-out">OUT nobody, the slot was empty</span>';
-    const addChip = sw.add ? '<span class="chip chip-add">ADD</span>' : "";
-    return `<div class="swap-row">${badge(sw.slot, true)}` +
-      `<span class="swap-in" data-pid="${esc(sw.in.id)}"><b>IN</b> ${esc(sw.in.n)}</span>` +
-      outHtml + addChip + `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
+      ? `<span class="swap-op"> over </span><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>`
+      : '<span class="swap-op"> into an empty slot</span>';
+    const addChip = sw.add ? '<span class="chip c-add">ADD</span>' : "";
+    return `<div class="swap-row is-in"><span class="chip c-in">IN</span>` +
+      `<span class="swap-txt"><span class="swap-in" data-pid="${esc(sw.in.id)}">${esc(sw.in.n)}</span>` +
+      `${outHtml}<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span>${addChip}</span>` +
+      `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
   }
 
   function flaggedRowHTML(r, starting){
     const why = [];
     if(r.onBye) why.push("bye");
     if(r.noproj) why.push("no projection");
-    if(r.inj) why.push(r.inj);
-    return `<div class="flag-row" data-pid="${esc(r.id)}">${badge(r.p, true)}` +
-      `<span class="flag-name">${esc(r.n)}</span>` +
-      `<span class="flag-why">${esc(why.join(", "))}</span>` +
+    if(r.inj) why.push(r.inj.toLowerCase());
+    return `<div class="flag-row" data-pid="${esc(r.id)}">${pos(r.p)}` +
+      `<div class="pmain"><div class="flag-name">${esc(r.n)}</div>` +
+      `<div class="flag-why">${esc(r.t)} ${DOT} ${esc(why.join(", "))}</div></div>` +
       `<span class="tag-status${starting ? " starting" : ""}">${starting ? "starting" : "bench"}</span></div>`;
   }
 
@@ -233,6 +291,30 @@
 
   function fmtTime(d){
     try{ return (d instanceof Date ? d : new Date(d)).toLocaleTimeString(); } catch(e){ return "?"; }
+  }
+
+  function sbox(label, value, vcls, verdict, note){
+    return `<div class="sbox"><div class="sk">${esc(label)}</div>` +
+      `<div class="sv${vcls ? " " + vcls : ""}">${value}</div>` +
+      `<div class="sfoot"><span>${esc(verdict)}</span><span class="sn">${esc(note)}</span></div></div>`;
+  }
+
+  // Four bordered boxes: where the roster stands, in one glance.
+  function renderStrip(m){
+    const me = m.me;
+    const slots = (m.rosterPositions || me.lineup || []).length;
+    const filled = (me.lineup || []).filter(s => s.r).length;
+    const moves = (me.swaps || []).length;
+    const adds = (me.adds || []).length;
+    const swing = me.setTotal == null ? null : me.total - me.setTotal;
+    const hidden = isNum(me.hidden) ? me.hidden : null;
+    $("h-strip").innerHTML =
+      sbox("Optimal", n1(me.total), "", filled === slots ? "full" : "gaps", `${filled}/${slots}`) +
+      sbox("Set", me.setTotal == null ? "unset" : n1(me.setTotal), "",
+        me.setTotal == null ? "none" : (moves ? "adjust" : "optimal"), `${moves} moves`) +
+      sbox("Swing", swing == null ? DOT : signed1(swing), swing != null && swing >= 1 ? "up" : "",
+        swing != null && swing >= 1 ? "act" : "hold", `${adds} adds`) +
+      sbox("Hidden", hidden == null ? DOT : signed1(hidden), hidden ? "blue" : "", "edge", "vs Sleeper");
   }
 
   function renderHeader(m){
@@ -249,6 +331,7 @@
       $("h-opp-total").textContent = "?";
     }
     $("h-fetched").textContent = m.fetched ? ("Fetched " + fmtTime(m.fetched)) : "";
+    renderStrip(m);
   }
 
   /* ------------------------------------------------------------- My team view */
@@ -332,25 +415,26 @@
     const weak = weakestEligible(pool, f.elig || [f.p]);
     const better = weak && (f.o - weak.o) > 0;
     const vs = better
-      ? `vs <span class="drop" data-pid="${esc(weak.id)}">${esc(weak.n)}</span>`
+      ? `over <span class="drop" data-pid="${esc(weak.id)}">${esc(weak.n)}</span>`
       : "nobody to drop";
     const diffHtml = better
       ? `<span class="add-diff">${signed1(f.o - weak.o)}</span>`
-      : `<span class="add-diff neg">?</span>`;
-    return `<div class="add-row">${badge(f.p, true)}` +
-      `<span class="add-name" data-pid="${esc(f.id)}">${esc(f.n)}</span>` +
-      `<span class="add-vs">${vs}</span>${diffHtml}</div>`;
+      : `<span class="add-diff neg">${DOT}</span>`;
+    return `<div class="add-row">${pos(f.p)}` +
+      `<div class="pmain"><div class="add-name" data-pid="${esc(f.id)}">${esc(f.n)}</div>` +
+      `<div class="add-vs">${vs}</div></div>` +
+      `<div class="pproj">${n1(f.o)}</div>${diffHtml}</div>`;
   }
 
   function renderTeamAdds(m){
     const pool = rosterPool(m);
     const fa = m.fa || {};
-    const anyOriginal = POS_ORDER.some(pos => (fa[pos] || []).length);
-    const groups = POS_ORDER.map(pos => {
-      const list = (fa[pos] || []).filter(r => rowMatches(r, teamFilter));
+    const anyOriginal = POS_ORDER.some(p => (fa[p] || []).length);
+    const groups = POS_ORDER.map(p => {
+      const list = (fa[p] || []).filter(r => rowMatches(r, teamFilter));
       if(!list.length) return "";
       const rows = list.map(f => addRowHTML(f, pool)).join("");
-      return `<div class="add-group"><h3>${badge(pos, true)}${esc(pos)}</h3>${rows}</div>`;
+      return `<div class="add-group"><h3>${esc(p)}</h3>${rows}</div>`;
     }).join("");
     $("team-adds-body").innerHTML = groups || (anyOriginal
       ? '<div class="msg">No free agents match your filter.</div>'
@@ -416,9 +500,9 @@
     const r = entry && entry.r;
     if(!r) return `<div class="mside ${side} empty-side">empty</div>`;
     const hi = r.o > otherVal ? " hi" : "";
-    const addChip = entry.add ? '<span class="chip chip-add">ADD</span>' : "";
+    const addChip = entry.add ? '<span class="chip c-add">ADD</span>' : "";
     const text = `<div class="mtext"><div class="mname-line">${esc(r.n)}${chips(r, false)}${addChip}</div>` +
-      `<div class="msub">${esc(r.p)} - ${esc(r.t)}</div></div>`;
+      `<div class="msub">${esc(r.p)} - ${esc(r.t)} ${DOT} L3 ${fmtPts(r.l3)}</div></div>`;
     const proj = `<div class="mproj">${n1(r.o)}</div>`;
     const inner = side === "mine" ? (text + proj) : (proj + text);
     return `<div class="mside ${side}${hi}" data-pid="${esc(r.id)}">${inner}</div>`;
@@ -434,7 +518,7 @@
     const mv = myR ? myR.o : 0, ov = oppR ? oppR.o : 0;
     const left = matchupSideHTML("mine", myEntry, ov);
     const right = matchupSideHTML("theirs", oppEntry, mv);
-    return `<div class="mrow">${left}<div class="mbadge">${badge(slotName, true)}</div>${right}</div>`;
+    return `<div class="mrow">${left}<div class="mbadge">${esc(SLOT_LABEL[slotName] || slotName)}</div>${right}</div>`;
   }
 
   function renderMatchupRows(m, opp){
@@ -464,8 +548,10 @@
   function summaryRowHTML(label, mineVal, theirVal, notSetMine, notSetTheir){
     const mineTxt = notSetMine ? "not set" : n1(mineVal);
     const theirTxt = notSetTheir ? "not set" : n1(theirVal);
-    const diffTxt = (notSetMine || notSetTheir) ? "?" : signed1(mineVal - theirVal);
-    return `<tr><td class="l">${esc(label)}</td><td>${mineTxt}</td><td>${theirTxt}</td><td>${diffTxt}</td></tr>`;
+    const diff = (notSetMine || notSetTheir) ? null : mineVal - theirVal;
+    const diffTxt = diff == null ? "?" : signed1(diff);
+    const cls = diff == null ? "" : (diff >= 0 ? ' class="up"' : ' class="dn"');
+    return `<tr><td class="l">${esc(label)}</td><td>${mineTxt}</td><td>${theirTxt}</td><td${cls}>${diffTxt}</td></tr>`;
   }
 
   function renderMatchupSummary(m, opp){
@@ -512,7 +598,12 @@
     renderMatchupOppFlagged(m, opp);
   }
 
-  /* ------------------------------------------------------------- Players view */
+  /* ------------------------------------------------------------- Players view
+     A pivot table. The always-present columns never move; the stat columns
+     follow the Columns select (or, on Auto, the position chip), and read
+     either this week's projected line or the season to date depending on
+     the Source control. Same column names either way, so the manager can
+     flip between what is expected and what has happened. */
 
   function ownerRidOf(r){
     if(!MODEL.rostered || !MODEL.rostered.has(r.id)) return null;
@@ -528,35 +619,147 @@
     return t ? t.name : "rostered";
   }
 
-  function apRowHTML(r){
-    const owner = ownerLabel(r);
-    return `<div class="aprow" data-pid="${esc(r.id)}">` +
-      `<span class="ap-rk">${r.wrk != null ? r.wrk : "?"}</span>` +
-      badge(r.p, true) +
-      `<div class="ap-main">` +
-        `<div class="ap-name">${esc(r.n)}${chips(r, false)}</div>` +
-        `<div class="ap-sub">${esc(r.p)} - ${esc(r.t)} ${MID} ` +
-        `<span class="ap-owner${owner === "you" ? " you" : ""}">${esc(owner)}</span></div>` +
-      `</div>` +
-      `<div class="ap-nums">` +
-        `<div class="ap-num"><span class="k">Slp</span><span class="v">${n1(r.sleep)}</span></div>` +
-        `<div class="ap-num"><span class="k">Hid</span><span class="v">${typeof r.hid === "number" ? signed1(r.hid) : ""}</span></div>` +
-        `<div class="ap-num our"><span class="k">Our</span><span class="v">${n1(r.o)}</span></div>` +
-      `</div></div>`;
+  // `sum` is a display fallback for the totals Sleeper sometimes publishes
+  // only as their two halves (tackles as solo plus assist). Adding two
+  // published counts for one column is not a re-derivation of any score.
+  const statCol = (label, key, fmt, title, sum) =>
+    ({id: "st_" + key, label, stat: key, sum, fmt: fmt || "count", def: "desc", title});
+
+  const PCOL_ALWAYS = [
+    {id:"wrk",    label:"#",      k:"wrk",   fmt:"int", def:"asc",  cls:"c-rk",       title:"Rank by our projection this week"},
+    {id:"player", label:"PLAYER", player:true, str:true, def:"asc", cls:"c-player l", title:"Name, position, team and owner"},
+    {id:"o",      label:"PROJ",   k:"o",     fmt:"pts", def:"desc", cls:"c-proj", grp:true, title:"Our projection this week"},
+    {id:"sleep",  label:"SLP",    k:"sleep", fmt:"pts", def:"desc", title:"Sleeper's own projection"},
+    {id:"hid",    label:"HID",    k:"hid",   fmt:"sgn", def:"desc", title:"Points Sleeper does not see"},
+    {id:"avg",    label:"AVG",    k:"avg",   fmt:"pts", def:"desc", grp:true, title:"Points per game this season"},
+    {id:"l3",     label:"L3",     k:"l3",    fmt:"pts", def:"desc", title:"Mean of his last three games played"},
+    {id:"snap",   label:"SNAP",   k:"snap",  fmt:"pct", def:"desc", title:"Season snap share"},
+    {id:"gp",     label:"GP",     k:"gpNow", fmt:"int", def:"desc", title:"Games played this season"}
+  ];
+
+  const PCOL_OFF = [
+    statCol("PA YD",  "pass_yd",  "int",   "Passing yards"),
+    statCol("PA TD",  "pass_td",  "count", "Passing touchdowns"),
+    statCol("INT",    "pass_int", "count", "Interceptions thrown"),
+    statCol("RU ATT", "rush_att", "int",   "Rushing attempts"),
+    statCol("RU YD",  "rush_yd",  "int",   "Rushing yards"),
+    statCol("RU TD",  "rush_td",  "count", "Rushing touchdowns"),
+    statCol("TGT",    "rec_tgt",  "int",   "Targets"),
+    statCol("REC",    "rec",      "count", "Receptions"),
+    statCol("RE YD",  "rec_yd",   "int",   "Receiving yards"),
+    statCol("RE TD",  "rec_td",   "count", "Receiving touchdowns"),
+    statCol("FUM",    "fum_lost", "count", "Fumbles lost")
+  ];
+
+  const PCOL_DEF = [
+    statCol("TKL",  "idp_tkl",      "count", "Total tackles", ["idp_tkl_solo", "idp_tkl_ast"]),
+    statCol("SOLO", "idp_tkl_solo", "count", "Solo tackles"),
+    statCol("AST",  "idp_tkl_ast",  "count", "Assisted tackles"),
+    statCol("SACK", "idp_sack",     "count", "Sacks"),
+    statCol("TFL",  "idp_tkl_loss", "count", "Tackles for loss"),
+    statCol("QBH",  "idp_qb_hit",   "count", "QB hits"),
+    statCol("PD",   "idp_pass_def", "count", "Passes defended"),
+    statCol("INT",  "idp_int",      "count", "Interceptions"),
+    statCol("FF",   "idp_ff",       "count", "Forced fumbles"),
+    statCol("FR",   "idp_fum_rec",  "count", "Fumble recoveries"),
+    statCol("TD",   "idp_td",       "count", "Defensive touchdowns")
+  ];
+
+  const PCOL_COMMON = [
+    {id:"v",   label:"VORP", k:"v",   fmt:"pts", def:"desc", title:"Points over replacement at his position"},
+    {id:"prk", label:"PRK",  k:"prk", fmt:"int", def:"asc",  title:"Rank by VORP within his position"},
+    {id:"a",   label:"AGE",  k:"a",   fmt:"int", def:"desc", title:"Age"},
+    statCol("TKL", "idp_tkl", "count", "Total tackles", ["idp_tkl_solo", "idp_tkl_ast"]),
+    statCol("REC", "rec",     "count", "Receptions")
+  ];
+
+  // Auto follows the position chip: offence columns for the offensive
+  // positions, defence columns for the defensive ones, the common set for
+  // a mixed list.
+  function colSetName(){
+    const mode = playersFilter.columns;
+    if(mode === "off" || mode === "def" || mode === "common") return mode;
+    const p = playersFilter.pos;
+    if(OFF_POS.indexOf(p) !== -1 || p === "OFF") return "off";
+    if(IDP_POS.indexOf(p) !== -1 || p === "IDP") return "def";
+    return "common";
   }
 
-  function sortPlayers(rows, key){
-    const out = rows.slice();
-    if(key === "sleeper") out.sort((a, b) => numOr(b.sleep, -Infinity) - numOr(a.sleep, -Infinity));
-    else if(key === "hidden") out.sort((a, b) => numOr(b.hid, -Infinity) - numOr(a.hid, -Infinity));
-    else if(key === "vorp") out.sort((a, b) => numOr(a.rk, Infinity) - numOr(b.rk, Infinity));
-    else if(key === "age") out.sort((a, b) => {
-      if(a.a == null) return b.a == null ? 0 : 1;
-      if(b.a == null) return -1;
-      return b.a - a.a;
-    });
-    else out.sort((a, b) => numOr(b.o, -Infinity) - numOr(a.o, -Infinity)); // "our", default
-    return out;
+  function playersCols(){
+    const set = colSetName();
+    const extra = set === "off" ? PCOL_OFF : set === "def" ? PCOL_DEF : PCOL_COMMON;
+    return PCOL_ALWAYS.concat(extra.map((c, i) => i === 0 ? Object.assign({}, c, {grp: true}) : c));
+  }
+
+  function statSource(r){
+    return playersFilter.source === "season" ? (r.st || null) : (r.line || null);
+  }
+
+  function colValue(r, col){
+    if(col.player) return r.n || "";
+    if(col.stat){
+      const src = statSource(r);
+      if(!src) return null;
+      if(isNum(src[col.stat])) return src[col.stat];
+      if(col.sum){
+        let any = false, tot = 0;
+        col.sum.forEach(k => { if(isNum(src[k])){ any = true; tot += src[k]; } });
+        if(any) return tot;
+      }
+      return null;
+    }
+    return isNum(r[col.k]) ? r[col.k] : null;
+  }
+
+  function fmtCell(v, fmt){
+    if(v == null) return DOT;
+    if(fmt === "pts") return fmtPts(v);
+    if(fmt === "sgn") return fmtSgn(v);
+    if(fmt === "pct") return fmtPct(v);
+    if(fmt === "int") return fmtInt(v);
+    return fmtCount(v);
+  }
+
+  function playerCellHTML(r){
+    const owner = ownerLabel(r);
+    return `<td class="c-player l"><div class="p-name">${esc(r.n)}${chips(r, false)}</div>` +
+      `<div class="p-sub">${esc(r.p)} - ${esc(r.t)} ${DOT} ` +
+      `<span class="p-own${owner === "you" ? " you" : ""}">${esc(owner)}</span></div></td>`;
+  }
+
+  function playerRowHTML(r, cols){
+    let html = `<tr data-pid="${esc(r.id)}">`;
+    for(const col of cols){
+      if(col.player){ html += playerCellHTML(r); continue; }
+      const v = colValue(r, col);
+      const cls = [col.cls || "", col.grp ? "grp" : "", v == null ? "nil" : ""].join(" ").trim();
+      html += `<td${cls ? ` class="${cls}"` : ""}>${fmtCell(v, col.fmt)}</td>`;
+    }
+    return html + "</tr>";
+  }
+
+  function renderPlayersHead(cols){
+    $("players-thead-row").innerHTML = cols.map(col => {
+      const active = playersSort.key === col.id;
+      const arrow = active
+        ? ` <span class="sarrow">${playersSort.dir === "asc" ? "▲" : "▼"}</span>` : "";
+      const sortAttr = active ? (playersSort.dir === "asc" ? "ascending" : "descending") : "none";
+      const cls = [col.cls || "", col.grp ? "grp" : ""].join(" ").trim();
+      return `<th${cls ? ` class="${cls}"` : ""} data-key="${esc(col.id)}" tabindex="0" role="button"` +
+        ` aria-sort="${sortAttr}"${col.title ? ` title="${esc(col.title)}"` : ""}>${esc(col.label)}${arrow}</th>`;
+    }).join("");
+  }
+
+  function renderPlayersControls(m){
+    const others = (m.teams || []).filter(t => !t.mine).slice().sort((a, b) => a.name.localeCompare(b.name));
+    const html = '<option value="all">All owners</option><option value="fa">Free agents</option>' +
+      '<option value="you">You</option>' +
+      others.map(t => `<option value="${esc(t.rid)}">${esc(t.name)}</option>`).join("");
+    playersFilter.owner = rebuildSelect($("players-owner"), html, String(playersFilter.owner), "all");
+    $("players-columns").value = playersFilter.columns;
+    $("players-flagged-only").checked = playersFilter.flaggedOnly;
+    Array.prototype.forEach.call($("players-source").children, b =>
+      b.setAttribute("aria-pressed", b.getAttribute("data-src") === playersFilter.source ? "true" : "false"));
   }
 
   // Rebuilds a <select>'s options, then restores `want` if it is still one
@@ -569,22 +772,19 @@
     return sel.value;
   }
 
-  function renderPlayersControls(m){
-    const others = (m.teams || []).filter(t => !t.mine).slice().sort((a, b) => a.name.localeCompare(b.name));
-    const html = '<option value="all">All owners</option><option value="fa">Free agents</option>' +
-      '<option value="you">You</option>' +
-      others.map(t => `<option value="${esc(t.rid)}">${esc(t.name)}</option>`).join("");
-    playersFilter.owner = rebuildSelect($("players-owner"), html, String(playersFilter.owner), "all");
-    $("players-sort").value = playersFilter.sort;
-    $("players-flagged-only").checked = playersFilter.flaggedOnly;
-  }
-
   // The only list rebuilt outside of a full UI.render(): search/filter/sort/
   // toggle controls call this directly so typing in the search box does not
   // re-paint the whole page on every keystroke.
   function drawPlayersList(){
     if(!MODEL) return;
     const f = playersFilter;
+    const cols = playersCols();
+    // A sort key can vanish with the column set (a defensive stat, then a
+    // switch to offence columns): fall back to the projection.
+    let col = cols.find(c => c.id === playersSort.key);
+    if(!col){ playersSort = {key: "o", dir: "desc"}; col = cols.find(c => c.id === "o"); }
+    renderPlayersHead(cols);
+
     let rows = MODEL.rows.filter(r => {
       if(!posMatches(r.elig, f.pos)) return false;
       if(f.search && searchHay(r.n, r.t, r.p, r.elig).indexOf(f.search) === -1) return false;
@@ -595,13 +795,15 @@
       else if(f.owner !== "all"){ if(String(rid) !== f.owner) return false; }
       return true;
     });
-    rows = sortPlayers(rows, f.sort);
+    rows = rows.slice().sort((a, b) =>
+      cmpVal(colValue(a, col), colValue(b, col), playersSort.dir, !!col.str));
+
     const total = rows.length;
     const shown = f.showAll ? total : Math.min(AP_CAP, total);
     $("players-count").textContent = `${shown} of ${total} shown`;
-    // One string build for the whole list rather than per-row DOM writes:
-    // this list can run into the thousands.
-    $("players-list").innerHTML = rows.slice(0, shown).map(apRowHTML).join("");
+    // One string build for the whole table body rather than per-row DOM
+    // writes: this list can run into the thousands.
+    $("players-body").innerHTML = rows.slice(0, shown).map(r => playerRowHTML(r, cols)).join("");
     $("players-showall").hidden = f.showAll || total <= AP_CAP;
   }
 
@@ -625,7 +827,8 @@
   function renderLeagueHead(){
     $("league-thead-row").innerHTML = LEAGUE_COLS.map(c => {
       const active = leagueFilter.key === c.key;
-      const arrow = active ? (leagueFilter.dir === "asc" ? " ▲" : " ▼") : "";
+      const arrow = active
+        ? ` <span class="sarrow">${leagueFilter.dir === "asc" ? "▲" : "▼"}</span>` : "";
       const sortAttr = active ? (leagueFilter.dir === "asc" ? "ascending" : "descending") : "none";
       return `<th class="${c.str ? "l" : ""}" data-key="${c.key}" tabindex="0" role="button"` +
         ` aria-sort="${sortAttr}"${c.title ? ` title="${esc(c.title)}"` : ""}>${esc(c.label)}${arrow}</th>`;
@@ -643,9 +846,9 @@
       `<td class="l">${esc(t.name)}</td>` +
       `<td class="l">${esc(t.oppName || "?")}</td>` +
       `<td>${n1(t.total)}</td>` +
-      `<td>${n1(t.setTotal)}</td>` +
-      `<td>${typeof t.hidden === "number" ? signed1(t.hidden) : ""}</td>` +
-      `<td>${t.ageW != null ? t.ageW.toFixed(1) : "?"}</td></tr>`
+      `<td>${t.setTotal == null ? DOT : n1(t.setTotal)}</td>` +
+      `<td>${isNum(t.hidden) ? signed1(t.hidden) : DOT}</td>` +
+      `<td>${t.ageW != null ? t.ageW.toFixed(1) : DOT}</td></tr>`
     ).join("");
   }
 
@@ -684,6 +887,26 @@
     prorated:"we prorated his 2025 per-game rate"
   };
 
+  // Form on the card: the same four figures as the row, plus the game log
+  // they came from, so the size of the sample is never implied.
+  function cardForm(r){
+    const gp = isNum(r.gpNow) && r.gpNow > 0 ? String(Math.round(r.gpNow)) : DOT;
+    const log = Array.isArray(r.log) ? r.log : [];
+    const strip = '<div class="card-strip">' +
+      sbox("Avg", fmtPts(r.avg), "", "per game", `${gp} gp`) +
+      sbox("Last 3", fmtPts(r.l3), trendCls(r).trim(), isNum(r.trend) ? (r.trend >= 0 ? "rising" : "falling") : "no sample",
+        isNum(r.trend) ? fmtSgn(r.trend) : DOT) +
+      sbox("Snap", fmtPct(r.snap), "", "season", "of team") +
+      sbox("Snap last", fmtPct(r.snapL), "", "last game", "of team") +
+      '</div>';
+    const logTable = log.length
+      ? '<table class="dtable"><tr><th class="l">Week</th><th>Points</th><th>Snap</th></tr>' +
+        log.map(g => `<tr><td class="l">Week ${esc(g && g.w != null ? g.w : "?")}</td>` +
+          `<td>${fmtPts(g && g.pts)}</td><td>${fmtPct(g && g.snap)}</td></tr>`).join("") + "</table>"
+      : `<div class="sec-note">No game log for him yet this season.</div>`;
+    return `<div class="card-grp">Form this season</div>${strip}${logTable}`;
+  }
+
   function openCard(r){
     if(!r) return;
     const line = r.line || {}, src = r.src || {};
@@ -716,7 +939,7 @@
     if(rateKeys.length){
       const rt = r.rates;
       deriv = `<div class="card-grp">How the estimated defensive stats were built</div>` +
-        `<table class="stat"><tr><th class="l">Stat</th><th>per</th><th>his 2025 rate</th>` +
+        `<table class="dtable"><tr><th class="l">Stat</th><th>per</th><th>his 2025 rate</th>` +
         `<th>${esc(r.p)} mean</th><th>weight</th><th>blend</th></tr>` +
         rateKeys.map(k => {
           const w = rt.w[k] || 0, raw = rt.raw[k] || 0, lg = rt.lg[k] || 0;
@@ -737,7 +960,7 @@
         `this week. Every point here is backfilled from his 2025 rates.`;
     } else {
       totalLine = `<b>Ours: ${n1(r.o)} points this week.</b> Sleeper had him at ${n1(r.sleep)}.`;
-      if(typeof r.hid === "number" && r.hid > 0){
+      if(isNum(r.hid) && r.hid > 0){
         totalLine += ` Of that, <b>${n1(r.hid)} points</b> come from stats we estimated rather than what ` +
           `Sleeper published: that is the Hidden figure, and it is what the rest of your league cannot see.`;
       }
@@ -745,14 +968,15 @@
 
     $("card-body").innerHTML =
       `<h3 class="card-name" id="card-name">${esc(r.n)}</h3>` +
-      `<div class="card-sub">${esc(r.p)}${r.prk != null ? "#" + r.prk : ""} ${MID} ${esc(r.t)} ${MID} ` +
-      `age ${r.a != null ? r.a : "?"} ${MID} rank #${r.wrk != null ? r.wrk : "?"} ${MID} ` +
+      `<div class="card-sub">${esc(r.p)}${r.prk != null ? "#" + r.prk : ""} ${DOT} ${esc(r.t)} ${DOT} ` +
+      `age ${r.a != null ? r.a : "?"} ${DOT} rank #${r.wrk != null ? r.wrk : "?"} ${DOT} ` +
       `Week ${WEEK != null ? WEEK : "?"}</div>` +
       (key ? `<div class="card-key">${key}</div>` : "") +
+      `<div class="card-grp">Projected this week</div>` +
       (rows.length
-        ? `<table class="stat"><tr><th class="l">Stat</th><th>this week</th></tr>${body}</table>`
+        ? `<table class="dtable"><tr><th class="l">Stat</th><th>this week</th></tr>${body}</table>`
         : `<div class="sec-note">No stat line for him this week.</div>`) +
-      `<div class="card-total">${totalLine}</div>${deriv}`;
+      `<div class="card-total">${totalLine}</div>${cardForm(r)}${deriv}`;
 
     $("cardwrap").hidden = false;
   }
@@ -810,8 +1034,33 @@
     wireFilterBar("players", playersFilter, drawPlayersList);
     $("players-owner").addEventListener("change", e => { playersFilter.owner = e.target.value; drawPlayersList(); });
     $("players-flagged-only").addEventListener("change", e => { playersFilter.flaggedOnly = e.target.checked; drawPlayersList(); });
-    $("players-sort").addEventListener("change", e => { playersFilter.sort = e.target.value; drawPlayersList(); });
+    $("players-columns").addEventListener("change", e => { playersFilter.columns = e.target.value; drawPlayersList(); });
+    $("players-source").addEventListener("click", e => {
+      const b = e.target.closest("button[data-src]");
+      if(!b) return;
+      playersFilter.source = b.getAttribute("data-src");
+      Array.prototype.forEach.call($("players-source").children, c =>
+        c.setAttribute("aria-pressed", c === b ? "true" : "false"));
+      drawPlayersList();
+    });
     $("players-showall").addEventListener("click", () => { playersFilter.showAll = true; drawPlayersList(); });
+    $("players-thead-row").addEventListener("click", e => {
+      const th = e.target.closest("th[data-key]");
+      if(!th) return;
+      const key = th.getAttribute("data-key");
+      const col = playersCols().find(c => c.id === key);
+      if(!col) return;
+      if(playersSort.key === key) playersSort.dir = playersSort.dir === "asc" ? "desc" : "asc";
+      else playersSort = {key, dir: col.def || "desc"};
+      drawPlayersList();
+    });
+    $("players-thead-row").addEventListener("keydown", e => {
+      if(e.key !== "Enter" && e.key !== " ") return;
+      const th = e.target.closest("th[data-key]");
+      if(!th) return;
+      e.preventDefault();
+      th.click();
+    });
 
     // ---- League --------------------------------------------------------
     $("league-thead-row").addEventListener("click", e => {

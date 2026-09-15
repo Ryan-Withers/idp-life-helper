@@ -2,31 +2,39 @@
 
 <div class="wrap" id="app" hidden>
 
-  <header class="hdr narrow" id="app-header">
+  <header class="hdr" id="app-header">
     <h2 class="sr-only">Header</h2>
-    <div class="hdr-top">
-      <div class="hdr-league">
-        <span id="h-league">League</span>
-        <span id="h-week">Week ?</span>
+
+    <!-- The page title sits on the graph-paper ground, not in a card: name,
+         a one-line description, then the feed dot and Refresh at the right. -->
+    <div class="titlerow">
+      <div class="title-left">
+        <h1 class="ptitle" id="h-league">League</h1>
+        <span class="ptitle-week" id="h-week">Week ?</span>
+        <span class="ptitle-desc">Optimal lineup, the points Sleeper cannot see, and what to change.</span>
       </div>
-      <div class="hdr-controls">
+      <div class="title-right">
         <span class="feed"><span class="dot off" id="v-dot"></span><span id="v-feed">offline</span></span>
-        <button type="button" id="btn-refresh">Refresh</button>
+        <button type="button" id="btn-refresh" class="btn">Refresh</button>
       </div>
     </div>
-    <div class="hdr-matchup">
-      <div class="hdr-team mine">
-        <div class="t-name" id="h-me-name">You</div>
-        <div class="t-total" id="h-me-total">0.0</div>
-        <div class="t-set" id="h-me-set"></div>
+
+    <div class="card hdr-card">
+      <div class="hdr-matchup">
+        <div class="hdr-team mine">
+          <div class="t-name" id="h-me-name">You</div>
+          <div class="t-total" id="h-me-total">0.0</div>
+          <div class="t-set" id="h-me-set"></div>
+        </div>
+        <div class="hdr-vs">vs</div>
+        <div class="hdr-team opp">
+          <div class="t-name" id="h-opp-name">No matchup</div>
+          <div class="t-total" id="h-opp-total">?</div>
+        </div>
       </div>
-      <div class="hdr-vs">vs</div>
-      <div class="hdr-team opp">
-        <div class="t-name" id="h-opp-name">No matchup</div>
-        <div class="t-total" id="h-opp-total">?</div>
-      </div>
+      <div class="strip" id="h-strip"></div>
+      <div class="hdr-fetched" id="h-fetched"></div>
     </div>
-    <div class="hdr-fetched" id="h-fetched"></div>
   </header>
 
   <nav class="tabbar" id="tabbar" role="tablist" aria-label="Sections">
@@ -39,8 +47,11 @@
   <main>
 
     <!-- ============================================================ My team -->
-    <section class="narrow" id="view-team" role="tabpanel" aria-labelledby="tab-team">
-      <h2 class="view-h">My team</h2>
+    <section id="view-team" role="tabpanel" aria-labelledby="tab-team">
+      <!-- The active tab already names the view, so the view heading is kept
+           for structure (and for anything reading the outline) rather than
+           spending a line of the instrument on a label. -->
+      <h2 class="view-h sr-only">My team</h2>
 
       <div class="filterbar" id="team-filterbar">
         <input type="search" class="team-search" id="team-search" placeholder="Search players" aria-label="Search players">
@@ -59,35 +70,37 @@
         <span class="fb-count" id="team-count"></span>
       </div>
 
-      <section id="sec-lineup">
-        <h2 class="sec-h">Lineup</h2>
-        <div id="team-lineup-rows"></div>
-      </section>
+      <div class="grid team-grid">
+        <section class="card" id="sec-lineup">
+          <h2 class="sec-h">Lineup</h2>
+          <div id="team-lineup-rows"></div>
+        </section>
 
-      <section id="sec-startsit">
-        <h2 class="sec-h">Start / sit</h2>
-        <div id="team-startsit-body"></div>
-      </section>
+        <section class="card" id="sec-startsit">
+          <h2 class="sec-h">Start / sit</h2>
+          <div id="team-startsit-body"></div>
+        </section>
 
-      <section id="sec-flagged">
-        <h2 class="sec-h">Flagged</h2>
-        <div id="team-flagged-body"></div>
-      </section>
+        <section class="card" id="sec-flagged">
+          <h2 class="sec-h">Flagged</h2>
+          <div id="team-flagged-body"></div>
+        </section>
 
-      <section id="sec-bench">
-        <h2 class="sec-h">Bench</h2>
-        <div id="team-bench-rows"></div>
-      </section>
+        <section class="card" id="sec-bench">
+          <h2 class="sec-h">Bench</h2>
+          <div id="team-bench-rows"></div>
+        </section>
 
-      <section id="sec-adds">
-        <h2 class="sec-h">Adds</h2>
-        <div id="team-adds-body"></div>
-      </section>
+        <section class="card" id="sec-adds">
+          <h2 class="sec-h">Adds</h2>
+          <div id="team-adds-body"></div>
+        </section>
+      </div>
     </section>
 
     <!-- ============================================================ Matchup -->
     <section id="view-matchup" role="tabpanel" aria-labelledby="tab-matchup" hidden>
-      <h2 class="view-h">Matchup</h2>
+      <h2 class="view-h sr-only">Matchup</h2>
 
       <div class="filterbar" id="matchup-filterbar">
         <input type="search" class="matchup-search" id="matchup-search" placeholder="Search players" aria-label="Search players">
@@ -103,34 +116,40 @@
           <button type="button" data-pos="OFF" aria-pressed="false">OFF</button>
           <button type="button" data-pos="IDP" aria-pressed="false">IDP</button>
         </div>
-        <span class="fb-count" id="matchup-count"></span>
-      </div>
-
-      <div class="matchup-controls">
-        <select id="matchup-opp" aria-label="Opponent"></select>
-        <div class="modef" id="matchup-mode">
-          <button type="button" data-mode="optimal" aria-pressed="true">Optimal</button>
-          <button type="button" data-mode="set" aria-pressed="false">As set</button>
+        <div class="matchup-controls">
+          <select id="matchup-opp" aria-label="Opponent"></select>
+          <div class="seg" id="matchup-mode" role="group" aria-label="Lineup mode">
+            <button type="button" data-mode="optimal" aria-pressed="true">Optimal</button>
+            <button type="button" data-mode="set" aria-pressed="false">As set</button>
+          </div>
         </div>
+        <span class="fb-count" id="matchup-count"></span>
       </div>
 
       <div class="msg" id="matchup-nomatch" hidden>No matchup this week. Pick a team above to compare.</div>
 
       <div id="matchup-body">
-        <div class="mtotals" id="matchup-totals"></div>
-        <div id="matchup-rows"></div>
+        <div class="grid matchup-grid">
+          <section class="card" id="sec-matchup-rows">
+            <h3 class="sec-h">Slot by slot</h3>
+            <div class="mtotals" id="matchup-totals"></div>
+            <div id="matchup-rows"></div>
+          </section>
 
-        <h3 class="sec-h">Summary</h3>
-        <div class="scroll">
-          <table class="msummary">
-            <colgroup><col><col class="num"><col class="num"><col class="num"></colgroup>
-            <thead><tr><th class="l">Group</th><th>You</th><th>Them</th><th>Diff</th></tr></thead>
-            <tbody id="matchup-summary-body"></tbody>
-          </table>
+          <section class="card" id="sec-matchup-summary">
+            <h3 class="sec-h">Summary</h3>
+            <table class="dtable msummary">
+              <colgroup><col><col class="num"><col class="num"><col class="num"></colgroup>
+              <thead><tr><th class="l">Group</th><th>You</th><th>Them</th><th>Diff</th></tr></thead>
+              <tbody id="matchup-summary-body"></tbody>
+            </table>
+          </section>
+
+          <section class="card" id="sec-matchup-flagged">
+            <h3 class="sec-h">Their flagged</h3>
+            <div id="matchup-oppflagged-body"></div>
+          </section>
         </div>
-
-        <h3 class="sec-h">Their flagged</h3>
-        <div id="matchup-oppflagged-body"></div>
       </div>
     </section>
 
@@ -139,59 +158,80 @@
          than view-players, matching the other three) since test/page_smoke.mjs,
          which this rework does not touch, still scrolls to it by that id. -->
     <section id="sec-allplayers" role="tabpanel" aria-labelledby="tab-players" hidden>
-      <h2 class="view-h">Players</h2>
+      <h2 class="view-h sr-only">Players</h2>
 
-      <div class="filterbar" id="players-filterbar">
-        <input type="search" class="players-search" id="players-search" placeholder="Search players" aria-label="Search players">
-        <div class="posf" id="players-posfilter">
-          <button type="button" data-pos="ALL" aria-pressed="true">ALL</button>
-          <button type="button" data-pos="QB" aria-pressed="false">QB</button>
-          <button type="button" data-pos="RB" aria-pressed="false">RB</button>
-          <button type="button" data-pos="WR" aria-pressed="false">WR</button>
-          <button type="button" data-pos="TE" aria-pressed="false">TE</button>
-          <button type="button" data-pos="DL" aria-pressed="false">DL</button>
-          <button type="button" data-pos="LB" aria-pressed="false">LB</button>
-          <button type="button" data-pos="DB" aria-pressed="false">DB</button>
-          <button type="button" data-pos="OFF" aria-pressed="false">OFF</button>
-          <button type="button" data-pos="IDP" aria-pressed="false">IDP</button>
+      <div class="card">
+        <div class="filterbar" id="players-filterbar">
+          <input type="search" class="players-search" id="players-search" placeholder="Search players" aria-label="Search players">
+          <div class="posf" id="players-posfilter">
+            <button type="button" data-pos="ALL" aria-pressed="true">ALL</button>
+            <button type="button" data-pos="QB" aria-pressed="false">QB</button>
+            <button type="button" data-pos="RB" aria-pressed="false">RB</button>
+            <button type="button" data-pos="WR" aria-pressed="false">WR</button>
+            <button type="button" data-pos="TE" aria-pressed="false">TE</button>
+            <button type="button" data-pos="DL" aria-pressed="false">DL</button>
+            <button type="button" data-pos="LB" aria-pressed="false">LB</button>
+            <button type="button" data-pos="DB" aria-pressed="false">DB</button>
+            <button type="button" data-pos="OFF" aria-pressed="false">OFF</button>
+            <button type="button" data-pos="IDP" aria-pressed="false">IDP</button>
+          </div>
         </div>
-        <span class="fb-count" id="players-count"></span>
-      </div>
 
-      <div class="players-extra">
-        <select id="players-owner" aria-label="Owner"></select>
-        <label class="hide-c"><input type="checkbox" id="players-flagged-only"> Flagged only</label>
-        <select id="players-sort" aria-label="Sort by">
-          <option value="our">Our projection</option>
-          <option value="sleeper">Sleeper</option>
-          <option value="hidden">Hidden</option>
-          <option value="vorp">VORP rank</option>
-          <option value="age">Age</option>
-        </select>
-      </div>
+        <div class="players-extra">
+          <select id="players-owner" aria-label="Owner"></select>
+          <label class="chk"><input type="checkbox" id="players-flagged-only"> Flagged only</label>
+          <span class="ctl">
+            <span class="ctl-k">Source</span>
+            <span class="seg" id="players-source" role="group" aria-label="Stat source">
+              <button type="button" data-src="week" aria-pressed="true">Week proj</button>
+              <button type="button" data-src="season" aria-pressed="false">Season</button>
+            </span>
+          </span>
+          <span class="ctl">
+            <span class="ctl-k">Columns</span>
+            <select id="players-columns" aria-label="Columns">
+              <option value="auto">Auto</option>
+              <option value="common">Common</option>
+              <option value="off">Offence</option>
+              <option value="def">Defence</option>
+            </select>
+          </span>
+        </div>
 
-      <div class="scroll" id="players-list"></div>
-      <button type="button" id="players-showall" hidden>Show all</button>
+        <div class="tframe" id="players-frame">
+          <table class="ptable" id="players-table">
+            <thead><tr id="players-thead-row"></tr></thead>
+            <tbody id="players-body"></tbody>
+          </table>
+        </div>
+
+        <div class="tfoot">
+          <span class="fb-count" id="players-count"></span>
+          <button type="button" class="btn" id="players-showall" hidden>Show all</button>
+        </div>
+      </div>
     </section>
 
     <!-- ============================================================ League
          Container id kept as "sec-league" for the same reason as Players,
          above. -->
     <section id="sec-league" role="tabpanel" aria-labelledby="tab-league" hidden>
-      <h2 class="view-h">League</h2>
+      <h2 class="view-h sr-only">League</h2>
 
-      <div class="filterbar" id="league-controls">
-        <input type="search" id="league-search" placeholder="Search teams" aria-label="Search teams">
-      </div>
+      <div class="card">
+        <div class="filterbar" id="league-controls">
+          <input type="search" id="league-search" placeholder="Search teams" aria-label="Search teams">
+        </div>
 
-      <div class="scroll">
-        <table class="league" id="league-table">
-          <colgroup><col><col><col class="num"><col class="num"><col class="num"><col class="num"></colgroup>
-          <thead>
-            <tr id="league-thead-row"></tr>
-          </thead>
-          <tbody id="league-body"></tbody>
-        </table>
+        <div class="tframe">
+          <table class="dtable league" id="league-table">
+            <colgroup><col><col><col class="num"><col class="num"><col class="num"><col class="num"></colgroup>
+            <thead>
+              <tr id="league-thead-row"></tr>
+            </thead>
+            <tbody id="league-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

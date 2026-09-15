@@ -4,7 +4,8 @@ One self-contained page for the Sleeper league **#23 SF IDP LIFE $55 Dynasty**
 (12 teams, superflex, 2 PPR, TE premium, nine IDP starters). It reads Sleeper
 live in the browser, runs this week's projections through the league's own
 scoring, fills in the defensive stats Sleeper never projects, and shows the
-best legal lineup for every roster.
+best legal lineup for every roster alongside how each player has actually
+been producing.
 
 Live: https://ryan-withers.github.io/idp-life-helper/
 
@@ -14,18 +15,20 @@ No build step, no data files, no keys. The only hosts contacted are
 ## What the page shows
 
 The header stays on every view: league, week, your optimal total against
-your opponent's, the total of the lineup you actually have set, Refresh, and
-a feed dot for the roster poll. Four tabs below it, each with a search box
-and position chips (ALL, QB, RB, WR, TE, DL, LB, DB, OFF, IDP) that filter
-every list on the view. The active tab and every filter survive the
-45-second roster poll.
+your opponent's, the total of the lineup you actually have set, and a strip
+of four figures (optimal, set, the swing between them, and the points
+Sleeper cannot see). Four tabs below it, each with a search box and position
+chips (ALL, QB, RB, WR, TE, DL, LB, DB, OFF, IDP) that filter every list on
+the view. The active tab and every filter survive the 45-second roster poll.
 
 **My team** (`#team`)
-- Lineup in the Sleeper TEAM-tab look, one row per slot in roster order. The
-  big number on the right is OUR projection; under the name, Sleeper's own
-  number and, for defenders, the points Sleeper does not see. Chips for BYE,
-  injury designation, "no proj", and ADD when the slot is best filled by a
-  free agent nobody rosters.
+- Lineup, one row per slot in roster order. The big number on the right is
+  OUR projection; under the name, Sleeper's own number and, for defenders,
+  the points Sleeper does not see. Between them, how he is actually going:
+  AVG (points per game this season), L3 (his last three games, green when
+  he is trending up and red when down) and SNAP (share of his team's snaps).
+  Chips for BYE, injury designation, "no proj", and ADD when the slot is
+  best filled by a free agent nobody rosters.
 - Start / sit: the gap in points between the lineup set in Sleeper and the
   optimal one, then the swaps, one per line, biggest gain first. Each player
   coming in is paired with the weakest player going out who could stand in
@@ -43,10 +46,16 @@ every list on the view. The active tab and every filter survive the
   the opponent's flagged players.
 
 **Players** (`#players`)
-- Every player in the pool by true projection: rank, badge, owner, chips,
-  Sleeper's number, hidden points, OUR projection. Owner select (all, free
-  agents, you, any team), flagged-only, and sort by our projection, Sleeper,
-  hidden, VORP rank or age. 300 rows painted until "show all".
+- A pivot table over the whole pool. Fixed columns: rank, player, owner, our
+  projection, Sleeper's, hidden, AVG, L3, SNAP and games played. The stat
+  columns beside them change two ways. SOURCE switches between this week's
+  projected stat line and the season to date, so you can flip between what is
+  expected and what has happened. COLUMNS switches the stat set: offence gets
+  passing, rushing and receiving, defence gets tackles, sacks, TFL, QB hits,
+  passes defended and takeaways, and on AUTO the set follows the position
+  filter, the way Sleeper swaps its own columns. Every heading sorts both
+  ways with unknowns last. Owner select, flagged-only and search as well.
+  300 rows painted until "show all".
 
 **League** (`#league`)
 - Every team's optimal total, set total, hidden points and starter age.
@@ -83,6 +92,15 @@ rather than started, and a slot a free agent wins is an ADD, not a lineup
 choice. Start / sit compares that lineup against the `starters` array Sleeper
 reports for the roster.
 
+**Form.** AVG is this season's points per game under league scoring: the
+season stat line divided by games played. L3 is the mean of his last three
+games actually played, so a missed week is a gap rather than a zero, and it
+rests on however many of the recent weeks the page fetched. SNAP is his share
+of the team's snaps, offensive or defensive as the position demands. It is
+null, and shown as a dot, whenever Sleeper publishes no snap counts: a zero
+there would read as "benched" when it means "unknown". None of these are
+projected or adjusted. They are what happened.
+
 **Replacement and VORP.** Replacement level per position is the season VORP
 baseline (greedy flex fill over starting slots across the league), used for
 ranks and the player card. It is not used as an in-season streaming bar: the
@@ -99,6 +117,8 @@ mean; U26 is the share of starting points from players 26 and under.
 | `/state/nfl` | current week and season type |
 | `/projections/nfl/{type}/{season}/{week}` | this week's stat lines |
 | `/stats/nfl/regular/2025` | rates for the backfill |
+| `/stats/nfl/{type}/{season}` | this season to date: average and snap share |
+| `/stats/nfl/{type}/{season}/{week}` | the last few weeks, for the last-three average |
 | `/players/nfl` | 14 MB player list, cached in localStorage for 24h |
 | `/league/{id}/users`, `/rosters`, `/matchups/{week}` | names, ownership, set lineups, opponents |
 | `/draft/{id}` | `slot_to_roster_id` only, to resolve which roster is yours |
@@ -124,7 +144,8 @@ every 45 seconds; projections on Refresh.
 ```
 node test/engine_equiv.mjs     # new engine vs the pre-rebuild page on one seeded fixture:
                                # every row field, replacement level and lineup slot identical
-node test/engine_unit.mjs      # 59 hand-checked scoring and assignment cases
+node test/engine_unit.mjs      # hand-checked scoring and assignment cases
+node test/form_unit.mjs        # hand-checked average, last-three and snap-share cases
 node test/ui_render.mjs        # UI against a mock MODEL in Chromium, 390px and 1280px
 node test/page_smoke.mjs       # assembled page in Chromium with Sleeper intercepted and fed
                                # the fixture; visible totals checked against the engine in Node

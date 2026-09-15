@@ -118,6 +118,94 @@ function makeRates(line, rng){
   return {n, g, w, raw, lg, per};
 }
 
+/* ---------------------------------------------------------------- form
+   Phase 2's new ROW fields: what has actually HAPPENED this season, as
+   opposed to what is projected for this week. Built from a SEPARATE
+   deterministic stream, seeded independently, so that adding form leaves
+   every field the earlier fixture produced byte identical.
+
+   Three families are forced by index so the UI's "no sample" paths are
+   always exercised, whatever the numbers come out as:
+     i % 23 === 3    nothing at all: he has not played (every form field null)
+     i % 23 === 7    points but no snap share (Sleeper does not always publish it)
+     i % 23 === 11   season totals but no weekly payloads (an empty log)
+   A handful of named players are forced into the same states further down,
+   so the lineup and the bench each show at least one of each. */
+const FORM_WEEK = 5;            // matches MODEL.week, below
+const IDP_SET = ["DL", "LB", "DB"];
+const round1 = v => Math.round(v * 10) / 10;
+const clampPct = v => Math.max(0, Math.min(100, v));
+
+// He has not played a snap this season: every form field is null, never 0.
+function noSample(r){
+  r.avg = null; r.l3 = null; r.gpNow = null; r.snap = null; r.snapL = null;
+  r.trend = null; r.log = []; r.st = null;
+}
+// He has played, but Sleeper publishes no snap counts for him.
+function noSnaps(r){
+  r.snap = null; r.snapL = null;
+  (r.log || []).forEach(g => { g.snap = null; });
+}
+// Season totals, but none of the individual weeks were fetched, so there is
+// nothing to take a last-three-games mean over.
+function noLog(r){ r.log = []; r.l3 = null; r.trend = null; }
+
+// Season to date, Sleeper's own keys: the week's line accumulated over the
+// games played, plus the totals Sleeper only publishes seasonally.
+function seasonTotals(line, gp, pos, frng){
+  const st = {};
+  for(const k in line) st[k] = round1(line[k] * gp * (0.75 + frng() * 0.5));
+  if(IDP_SET.includes(pos)){
+    const solo = st.idp_tkl_solo || 0, ast = st.idp_tkl_ast || 0;
+    if(solo || ast) st.idp_tkl = round1(solo + ast);
+    if(frng() < 0.25) st.idp_fum_rec = 1;
+    if(frng() < 0.08) st.idp_td = 1;
+  } else {
+    if(st.rec) st.rec_tgt = Math.round(st.rec * (1.3 + frng() * 0.5));
+    if(frng() < 0.2) st.fum_lost = 1;
+  }
+  return st;
+}
+
+function attachForm(rows){
+  const frng = mulberry32(0x5EEDF0);
+  rows.forEach((r, i) => {
+    // Two week-projection keys Sleeper does publish that makeLine leaves
+    // out: targets, and (for about half the defenders) a combined tackle
+    // total, so the Players table exercises both that column and the
+    // solo + assist fallback the other half needs.
+    if(r.line.rec) r.line.rec_tgt = round1(r.line.rec * (1.3 + frng() * 0.5));
+    if(r.line.idp_tkl_solo && frng() < 0.5)
+      r.line.idp_tkl = round1((r.line.idp_tkl_solo || 0) + (r.line.idp_tkl_ast || 0));
+
+    const kind = i % 23;
+    if(kind === 3){ noSample(r); return; }
+
+    const gp = 1 + Math.floor(frng() * 4);
+    const avg = round1(Math.max(0, r.o * (0.7 + frng() * 0.7)));
+    const l3 = round1(Math.max(0, avg * (0.55 + frng() * 0.95)));
+    const snap = 22 + Math.round(frng() * 76);
+    r.gpNow = gp;
+    r.avg = avg;
+    r.l3 = l3;
+    r.trend = round1(l3 - avg);
+    r.snap = snap;
+    r.snapL = clampPct(snap + Math.round((frng() - 0.5) * 26));
+    r.log = [];
+    for(let k = Math.min(gp, 3); k >= 1; k--)
+      r.log.push({
+        w: FORM_WEEK - k,
+        pts: round1(Math.max(0, avg * (0.45 + frng() * 1.2))),
+        snap: clampPct(snap + Math.round((frng() - 0.5) * 30))
+      });
+    r.st = seasonTotals(r.line, gp, r.p, frng);
+
+    if(kind === 7) noSnaps(r);
+    if(kind === 11) noLog(r);
+  });
+  return rows;
+}
+
 function buildPool(rng){
   const rows = [];
   let seq = 100000;
@@ -219,7 +307,7 @@ function fillLineup(roster){
 
 export function mockModel(){
   const rng = mulberry32(0xC0FFEE ^ 20260905);
-  const rows = rankPool(buildPool(rng));
+  const rows = attachForm(rankPool(buildPool(rng)));
   const byPos = {}; POS_ORDER.forEach(p => { byPos[p] = rows.filter(r => r.p === p); });
   const used = new Set();
   const take = (pos, n = 1) => {
@@ -304,6 +392,14 @@ export function mockModel(){
   ];
 
   const bench = [BENCH_QB_SET, RB4, WR5, BYE_WR, TE2, DL3, LB4, DB3, DB4].sort((a, b) => b.o - a.o);
+
+  // Guaranteed form cases in what the My team view actually paints: a
+  // starter and a bench player with no sample at all, one of each with
+  // points but no published snap share, and one of each with season totals
+  // but no game log.
+  noSample(WR2); noSample(TE2);
+  noSnaps(RB2);  noSnaps(DL3);
+  noLog(DL1);    noLog(RB4);
 
   const total = lineup.reduce((s, x) => s + (x.r ? x.r.o : 0), 0);
   // Optimal vs set, hand-authored rather than diffed: ADD_QB and ADD_DB are

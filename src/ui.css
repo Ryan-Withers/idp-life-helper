@@ -1,327 +1,393 @@
-/* Roster page presentation layer. Dark theme only (the app has no light mode).
-   Sleeper TEAM-tab look: colour-coded slot badge, circular thumb, name stack,
-   big tabular-number projection on the right. See CONTRACT.md for the shapes
-   this is rendered from. */
+/* Roster page presentation layer: a light, monospace, hairline instrument.
+   Graph-paper ground, white cards with one hairline border, dense rows,
+   plain text positions. Colour carries meaning only: green for a gain,
+   red for a sit or a loss, blue for a change or the active control.
+   See CONTRACT.md (Phase 2) for the shapes this is rendered from. */
 
 :root{
-  --bg:#0c0e12; --surf:#151920; --surf2:#1a1f27; --surf3:#212733;
-  --line:#252b34; --line2:#333a46;
-  --ink:#edf0f4; --dim:#96a0ac; --faint:#5b6270;
-  --up:#3ecf8e;  --upbg:#122c22;
-  --dn:#e2685a;  --dnbg:#33201c;
-  --hot:#e0a83b; --hotbg:#332912;
-  --accent:#5b9bef;
+  color-scheme:light;
 
-  /* Position families, matched to Sleeper's own app colours. Each badge pairs
-     a medium-saturation fill with the same translucent dark ink for its
-     letters, which is what gives every pill the same "duotone" read no
-     matter the hue. */
-  --qb:#ef82ac; --rb:#7ddba1; --wr:#7cb6f4; --te:#f2ad68;
-  --dl:#e2836a; --lb:#dfc158; --db:#a99bf1;
-  --badge-ink:rgba(12,10,20,.68);
+  --paper:#fbfbf9;
+  --card:#fff;
+  --line:#e6e5e1;       /* card and table hairlines */
+  --line2:#f0efeb;      /* row hairlines, one step fainter */
+  --btn-line:#d9d7d1;
+
+  --ink:#17171a;
+  --dim:#6f6d66;
+  --faint:#9c9a92;
+  --label:#78766e;      /* section headings, column headings */
+  --pos:#8b93a3;        /* the position column: present, never loud */
+
+  --up:#127a46;         /* a gain, a start */
+  --dn:#b3402f;         /* a sit, a loss */
+  --blue:#2a5db0;       /* a change, the active control */
+  --tint-in:#eef3fd;    /* a row coming in */
+  --tint-out:#fdf1ef;   /* a row going out */
+  --hover:#f7f7f4;
+
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
 }
 
 *{box-sizing:border-box}
-html{background:var(--bg)}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
-h1,h2,h3{margin:0}
-button,input,select{font:inherit;color:inherit}
+html{background:var(--paper)}
+/* The ground: near-white warm paper under a 24px graph-paper grid, drawn
+   with two linear gradients rather than an image. */
+body{
+  margin:0;color:var(--ink);
+  font:12px/1.45 var(--mono);
+  font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+  background:
+    linear-gradient(to bottom,rgba(0,0,0,.035) 1px,transparent 1px) 0 0/100% 24px,
+    linear-gradient(to right,rgba(0,0,0,.035) 1px,transparent 1px) 0 0/24px 100%,
+    var(--paper);
+}
+h1,h2,h3{margin:0;font:inherit}
+button,input,select{font:inherit;color:inherit;font-variant-numeric:tabular-nums}
+img{max-width:100%}
 
-/* Utility: keeps a heading in the DOM (for structure and the "every section
-   has one" rule) without spending visible space on a label a Sleeper user
-   never asked to read. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
-.wrap{max-width:1120px;margin:0 auto;padding:0 14px 48px}
-/* My team reads best as one narrow column, same as Sleeper's own TEAM tab;
-   Matchup, Players and League are allowed to spread into the rest of the
-   width instead. */
-.narrow{max-width:720px;margin:0 auto}
-
-.boot{padding:80px 16px;text-align:center;color:var(--faint);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding:14px 14px 44px}
+.boot{padding:70px 16px;text-align:center;color:var(--dim);font-size:12px;letter-spacing:.04em}
+.boot.bad{color:var(--dn)}
 #app[hidden],.boot[hidden]{display:none}
 
+/* ------------------------------------------------------------------ cards */
+.card{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:14px;min-width:0}
+.grid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+
+.sec-h{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
+  font-weight:700;padding-bottom:6px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.sec-note,.msg{font-size:11px;color:var(--dim);padding:6px 0;line-height:1.5}
+
 /* ------------------------------------------------------------------ header */
-header.hdr{padding:14px 0 10px;border-bottom:1px solid var(--line);margin-bottom:0}
-.hdr-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.hdr-league{display:flex;align-items:baseline;gap:9px;min-width:0}
-#h-league{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#h-week{font-size:12px;color:var(--dim);white-space:nowrap}
-.hdr-controls{display:flex;align-items:center;gap:12px;flex:none}
-.feed{font-size:12px;color:var(--dim);white-space:nowrap}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
-.dot.warn{background:var(--hot)}
+.hdr{margin-bottom:14px}
+.titlerow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  flex-wrap:wrap;margin-bottom:10px}
+.title-left{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.ptitle{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--ink)}
+.ptitle-week{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)}
+.ptitle-desc{font-size:10.5px;color:var(--dim)}
+.title-right{display:flex;align-items:center;gap:10px;flex:none}
+.feed{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
+.dot.warn{background:#a8791b}
 .dot.off{background:var(--faint)}
 
-button{background:var(--surf2);border:1px solid var(--line2);color:var(--ink);
-  border-radius:7px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer}
-button:hover{background:var(--surf3)}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#0b1220}
-
-select{background:var(--surf2);border:1px solid var(--line2);color:var(--ink);
-  border-radius:7px;padding:6px 10px;font-size:12.5px}
-
-.hdr-matchup{display:flex;align-items:center;gap:14px;margin-top:14px}
+.hdr-matchup{display:flex;align-items:flex-end;gap:12px}
 .hdr-team{flex:1 1 0;min-width:0}
 .hdr-team.opp{text-align:right}
-.t-name{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hdr-team.mine .t-name{color:var(--ink);font-weight:600}
-.t-total{font-size:26px;font-weight:800;line-height:1.15}
-.t-set{font-size:11px;color:var(--faint);margin-top:2px}
-.hdr-vs{flex:none;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
-.hdr-fetched{font-size:11px;color:var(--faint);margin-top:10px;padding-bottom:10px}
+.t-name{font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-team.mine .t-name{color:var(--ink);font-weight:700}
+.t-total{font-size:22px;font-weight:700;line-height:1.15;letter-spacing:-.01em}
+.t-set{font-size:9.5px;color:var(--faint);margin-top:1px}
+.hdr-vs{flex:none;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.09em;padding-bottom:4px}
+.hdr-fetched{font-size:9.5px;color:var(--faint);margin-top:8px}
+
+/* Four small bordered boxes: the state of the roster in one glance. */
+.strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.sbox{border:1px solid var(--line);border-radius:4px;padding:6px 8px;min-width:0}
+.sk{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sv{font-size:16px;font-weight:700;line-height:1.25;margin-top:1px}
+.sv.up{color:var(--up)} .sv.dn{color:var(--dn)} .sv.blue{color:var(--blue)}
+.sfoot{display:flex;justify-content:space-between;gap:6px;font-size:9px;color:var(--dim);
+  white-space:nowrap;overflow:hidden}
+.sfoot .sn{color:var(--faint)}
+
+/* ------------------------------------------------------------------ controls */
+.btn,.posf button,.seg button{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
+  border-radius:3px;padding:3px 8px;font-size:11px;letter-spacing:.03em;cursor:pointer;line-height:1.5}
+.btn:hover,.posf button:hover,.seg button:hover{background:var(--hover)}
+.btn:focus-visible,.posf button:focus-visible,.seg button:focus-visible,
+input:focus-visible,select:focus-visible,th:focus-visible{outline:1px solid var(--blue);outline-offset:1px}
+.posf button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* Segmented control: one bordered strip, hairline dividers, the active cell
+   filled. Used for the tab bar, the matchup mode and the stat source. */
+.seg{display:inline-flex;border:1px solid var(--btn-line);border-radius:3px;overflow:hidden;flex:none}
+.seg button{border:0;border-left:1px solid var(--btn-line);border-radius:0;padding:3px 9px}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+
+select{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
+  border-radius:3px;padding:3px 6px;font-size:11px;max-width:100%}
+input[type=search]{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
+  border-radius:3px;padding:3px 7px;font-size:11px;min-width:120px;flex:1 1 140px;max-width:260px}
+input[type=search]::placeholder{color:var(--faint)}
+.chk{font-size:10.5px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.chk input{accent-color:var(--blue);margin:0}
+.ctl{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ctl-k{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 
 /* ------------------------------------------------------------------ tabs */
-.tabbar{position:sticky;top:0;z-index:10;display:flex;gap:6px;background:var(--bg);
-  margin:0 -14px;padding:9px 14px;border-bottom:1px solid var(--line)}
-.tabbtn{flex:1 1 0;text-align:center;background:var(--surf2);border:1px solid var(--line2);color:var(--dim);
-  border-radius:8px;padding:8px 4px;font-size:12.5px;font-weight:700;cursor:pointer;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:none}
-.tabbtn:hover{background:var(--surf3);color:var(--ink)}
-.tabbtn[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:#0b1220}
+.tabbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--card);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:0 0 14px}
+.tabbtn{background:var(--card);border:0;border-left:1px solid var(--line);color:var(--dim);
+  padding:7px 4px;font-size:11px;letter-spacing:.05em;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabbtn:first-child{border-left:0}
+.tabbtn:hover{background:var(--hover);color:var(--ink)}
+.tabbtn[aria-selected=true]{background:var(--ink);color:#fff}
+.tabbtn:focus-visible{outline:1px solid var(--blue);outline-offset:-2px}
 
-.view-h{font-size:16px;font-weight:800;margin:18px 2px 8px}
+/* ------------------------------------------------------------------ filter bar */
+.filterbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px}
+#players-filterbar,#league-controls{margin-bottom:8px}
+.posf{display:flex;flex-wrap:wrap;gap:4px}
+.posf button{padding:3px 6px;font-size:10px;letter-spacing:.04em;min-width:26px}
+.fb-count{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+.filterbar .fb-count{margin-left:auto;flex:0 0 auto}
+.matchup-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#matchup-opp{min-width:150px}
 
-/* ------------------------------------------------------------------ section shells */
-section{margin:22px 0}
-.sec-h{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-  font-weight:700;margin:0 0 8px}
-.sec-note{font-size:12.5px;color:var(--dim);margin:0 0 8px;line-height:1.55}
-.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.players-extra{display:flex;flex-wrap:wrap;gap:7px 14px;align-items:center;margin:0 0 10px}
 
-/* ------------------------------------------------------------------ shared filter bar
-   Search + position chips + a match count, reused by the My team, Matchup
-   and Players views (League gets its own plain search, teams have no
-   position to filter on). */
-.filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 14px}
-.fb-count{font-size:12px;color:var(--faint);flex:1 1 100%}
-input[type=search]{background:var(--surf2);border:1px solid var(--line2);color:var(--ink);
-  border-radius:7px;padding:6px 10px;font-size:13px;min-width:150px;flex:1 1 150px}
-.posf{display:flex;flex-wrap:wrap;gap:5px}
-.posf button{padding:4px 10px;font-size:11.5px}
-label.hide-c{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
-.msg{font-size:13px;color:var(--dim);background:var(--surf2);border:1px solid var(--line);
-  border-radius:8px;padding:11px 13px}
+/* ------------------------------------------------------------------ player row
+   Shared by the lineup and the bench. One line of name, one of meta, the
+   form block and the projection on the right. About 32px tall. */
+.prow{display:grid;grid-template-columns:26px 18px minmax(0,1fr) auto 44px;
+  align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid var(--line2)}
+.prow:last-child{border-bottom:0}
+.prow[data-pid]{cursor:pointer}
+.prow[data-pid]:hover{background:var(--hover)}
+.prow.add{background:var(--tint-in)}
+.prow.dim .pname{font-weight:400;color:var(--dim)}
+.prow.empty{color:var(--faint);grid-template-columns:26px minmax(0,1fr)}
 
-/* ------------------------------------------------------------------ player / slot row
-   Shared by the lineup and the bench: badge, thumbnail, name stack, big number.
-   This is the row that has to look like the Sleeper screenshot. */
-.prow{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line)}
-.prow:last-child{border-bottom:none}
-.prow[data-pid]{cursor:pointer;border-radius:8px}
-.prow[data-pid]:hover{background:var(--surf)}
-.prow.dim .prow-name{color:var(--dim)}
-.prow.dim{opacity:.82}
-.prow.add{background:var(--upbg);border-radius:8px}
-.prow.empty{border:1px dashed var(--line2);border-radius:9px;padding:11px 12px;margin:5px 0;background:none}
-
-.badge{flex:none;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
-  justify-content:center;font-size:12.5px;font-weight:800;color:var(--badge-ink);letter-spacing:.01em}
-.badge.sm{width:30px;height:22px;border-radius:6px;font-size:10px}
-.bdg-qb{background:var(--qb)} .bdg-rb{background:var(--rb)} .bdg-wr{background:var(--wr)} .bdg-te{background:var(--te)}
-.bdg-dl{background:var(--dl)} .bdg-lb{background:var(--lb)} .bdg-db{background:var(--db)}
-.bdg-flex{background:linear-gradient(90deg,var(--wr) 0 33%,var(--rb) 33% 66%,var(--te) 66% 100%)}
-.bdg-wrrb_flex{background:linear-gradient(90deg,var(--wr) 0 50%,var(--rb) 50% 100%)}
-.bdg-rec_flex{background:linear-gradient(90deg,var(--wr) 0 50%,var(--te) 50% 100%)}
-.bdg-super_flex{background:linear-gradient(90deg,var(--qb) 0 25%,var(--rb) 25% 50%,var(--wr) 50% 75%,var(--te) 75% 100%)}
-.bdg-idp_flex{background:linear-gradient(90deg,var(--dl) 0 33%,var(--lb) 33% 66%,var(--db) 66% 100%)}
-
-/* Circular thumbnail with a plain-circle fallback. The fallback is the empty
-   .ava background showing through: on error the <img> gets display:none via
-   .err rather than a new src, so there is never a second network request and
-   never a broken-image glyph. */
-.ava{flex:none;width:40px;height:40px;border-radius:50%;background:var(--surf3);overflow:hidden}
-.ava img{width:100%;height:100%;object-fit:cover;display:block}
+.pos{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--pos);
+  white-space:nowrap;overflow:hidden}
+.ava{width:18px;height:18px;border-radius:2px;background:var(--line2);overflow:hidden;display:block}
+.ava img{width:100%;height:100%;object-fit:cover;display:block;filter:grayscale(.3)}
 .ava img.err{display:none}
 
-.prow-main{flex:1 1 auto;min-width:0}
-.prow-name{font-weight:700;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.prow-sub{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.prow-slp{font-size:11px;color:var(--faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mid{padding:0 4px;color:var(--faint)}
-.prow-proj{flex:none;font-size:21px;font-weight:800;text-align:right;min-width:54px}
-.empty-txt{font-size:13px;color:var(--faint)}
+.pmain{min-width:0}
+.pname{font-size:11.5px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta{font-size:9.5px;line-height:1.25;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta .thin{color:var(--dn)}
+.mid{padding:0 3px;color:var(--faint)}
+.pproj{font-size:14px;font-weight:700;text-align:right}
+.empty-txt{font-size:10px;color:var(--faint);border:1px dashed var(--line);border-radius:3px;
+  padding:1px 6px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 
-.chip{display:inline-block;font-size:9.5px;font-weight:800;text-transform:uppercase;
-  letter-spacing:.04em;padding:1px 6px;border-radius:4px;margin-left:5px;vertical-align:1px}
-.chip-bye{color:var(--faint);background:var(--surf3)}
-.chip-inj{color:var(--hot);background:var(--hotbg)}
-.chip-noproj{color:var(--faint);background:var(--surf3)}
-.chip-add{color:var(--up);background:var(--upbg)}
+/* Form at a glance: AVG, L3, SNAP. Tiny label over a small value; L3 takes
+   the only colour, and only when the trend is worth a manager's attention. */
+.form{display:flex;gap:9px;flex:none}
+.f{text-align:right;min-width:34px}
+.fk{display:block;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);line-height:1.25}
+.fv{display:block;font-size:10.5px;line-height:1.3}
+.fv.up{color:var(--up)} .fv.dn{color:var(--dn)}
+
+/* ------------------------------------------------------------------ chips */
+.chip{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.05em;
+  padding:2px 5px;border-radius:2px;margin-left:5px;vertical-align:1px;
+  background:var(--line2);color:var(--dim);border:1px solid var(--line);line-height:1}
+.chip.c-in,.chip.c-add{background:var(--blue);border-color:var(--blue);color:#fff}
+.chip.c-sit{background:var(--dn);border-color:var(--dn);color:#fff}
+.chip.c-start{background:var(--up);border-color:var(--up);color:#fff}
+.chip:first-child{margin-left:0}
 
 /* ------------------------------------------------------------------ start/sit */
-.ss-total{font-size:15px;font-weight:700;margin-bottom:8px}
-.ss-total .n{color:var(--up)}
-.swap-row{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line);
-  font-size:13px;flex-wrap:wrap}
-.swap-row:last-child{border-bottom:none}
-.swap-in,.swap-out{cursor:pointer;border-radius:5px;padding:1px 3px}
-.swap-in:hover,.swap-out:hover{background:var(--surf)}
-.swap-in b, .swap-out b{font-weight:700}
+.ss-total{font-size:11px;color:var(--dim);padding:4px 0 7px;border-bottom:1px solid var(--line2)}
+.ss-total .n{font-size:13px;font-weight:700;color:var(--up)}
+.swap-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:5px 3px;border-bottom:1px solid var(--line2);font-size:11px}
+.swap-row:last-child{border-bottom:0}
+.swap-row.is-sit{background:var(--tint-out)}
+.swap-row.is-in{background:var(--tint-in)}
+.swap-txt{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.swap-in,.swap-out{cursor:pointer}
+.swap-in{font-weight:700}
+.swap-in:hover,.swap-out:hover,.add-name:hover,.drop:hover{text-decoration:underline}
 .swap-out{color:var(--dim)}
-.swap-gain{margin-left:auto;font-weight:700;color:var(--up);flex:none}
-.swap-nobadge{flex:none;width:34px}
+.swap-op{color:var(--faint);padding:0 2px}
+.swap-gain{font-weight:700;color:var(--up);text-align:right;white-space:nowrap}
+.swap-row.is-sit .swap-gain{color:var(--dn)}
 
-/* ------------------------------------------------------------------ flagged
-   Shared by My team's own Flagged section and Matchup's "Their flagged". */
-.flag-row{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--line);
-  font-size:13px;cursor:pointer;border-radius:7px}
-.flag-row:last-child{border-bottom:none}
-.flag-row:hover{background:var(--surf)}
-.flag-name{font-weight:600;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flag-why{font-size:12px;color:var(--dim);flex:1 1 auto;min-width:0}
-.tag-status{flex:none;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
-  padding:2px 7px;border-radius:4px;color:var(--dim);background:var(--surf3)}
-.tag-status.starting{color:var(--up);background:var(--upbg)}
+/* ------------------------------------------------------------------ flagged */
+.flag-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:4px 2px;border-bottom:1px solid var(--line2);font-size:11px;cursor:pointer}
+.flag-row:last-child{border-bottom:0}
+.flag-row:hover{background:var(--hover)}
+.flag-name{font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flag-why{font-size:9.5px;line-height:1.25;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-status{font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 5px;border-radius:2px;
+  color:var(--dim);background:var(--line2);border:1px solid var(--line);white-space:nowrap;line-height:1}
+.tag-status.starting{color:#fff;background:var(--up);border-color:var(--up)}
 
 /* ------------------------------------------------------------------ adds */
-.add-group{margin-bottom:14px}
+.add-group{margin-bottom:10px}
 .add-group:last-child{margin-bottom:0}
-.add-group h3{font-size:12px;font-weight:700;color:var(--dim);margin:0 0 4px;display:flex;align-items:center;gap:7px}
-.add-row{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px}
-.add-row:last-child{border-bottom:none}
-.add-name{font-weight:600;cursor:pointer;border-radius:5px}
-.add-name:hover{background:var(--surf)}
-.add-vs{font-size:12px;color:var(--dim);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.add-vs .drop{cursor:pointer;border-radius:4px}
-.add-vs .drop:hover{background:var(--surf)}
-.add-diff{flex:none;font-weight:700;color:var(--up)}
-.add-diff.neg{color:var(--faint);font-weight:500}
+.add-group h3{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
+  font-weight:700;margin-bottom:2px}
+.add-row{display:grid;grid-template-columns:26px minmax(0,1fr) 44px 44px;gap:8px;align-items:center;
+  padding:4px 2px;border-bottom:1px solid var(--line2);font-size:11px}
+.add-row:last-child{border-bottom:0}
+.add-name{font-weight:700;line-height:1.3;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-vs{font-size:9.5px;line-height:1.25;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-vs .drop{cursor:pointer;color:var(--ink)}
+.add-diff{font-weight:700;color:var(--up);text-align:right}
+.add-diff.neg{color:var(--faint);font-weight:400}
 
 /* ------------------------------------------------------------------ matchup */
-.matchup-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:2px 0 16px}
-#matchup-opp{min-width:170px;flex:1 1 170px}
-.modef{display:flex;gap:5px;flex:none}
-.modef button{padding:6px 14px;font-size:12px}
-
-.mtotals{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:6px 0 16px}
-.mt-name{font-size:13px;color:var(--dim);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mtotals .mt-name:first-child{text-align:left}
+.mtotals{display:flex;align-items:center;gap:8px;padding:2px 0 8px;border-bottom:1px solid var(--line2);margin-bottom:4px}
+.mt-name{font-size:10px;color:var(--dim);flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mtotals .mt-name:last-child{text-align:right}
-.mt-val{font-size:22px;font-weight:800;flex:none}
-.mt-vs{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;flex:none}
+.mt-val{font-size:15px;font-weight:700;flex:none}
+.mt-vs{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;flex:none}
 
-.mrow{display:flex;align-items:center;gap:6px;padding:9px 0;border-bottom:1px solid var(--line)}
-.mrow:last-child{border-bottom:none}
-.mside{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);gap:6px;align-items:center;
+  padding:4px 0;border-bottom:1px solid var(--line2)}
+.mrow:last-child{border-bottom:0}
+.mbadge{text-align:center;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--pos)}
+.mside{display:flex;align-items:center;gap:7px;min-width:0;padding:2px 3px;border-radius:3px}
 .mside[data-pid]{cursor:pointer}
-.mside[data-pid]:hover{background:var(--surf)}
-.mside.hi{background:var(--upbg)}
+.mside[data-pid]:hover{background:var(--hover)}
 .mside.mine{justify-content:flex-end}
 .mside.theirs{justify-content:flex-start}
 .mside .mtext{min-width:0}
 .mside.mine .mtext{text-align:right}
-.mside.theirs .mtext{text-align:left}
-.mname-line{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.msub{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mproj{flex:none;font-size:16px;font-weight:800;min-width:36px;text-align:center}
-.mbadge{flex:none}
-.mside.empty-side{border:1px dashed var(--line2);color:var(--faint);font-size:11.5px;justify-content:center;min-height:34px}
+.mname-line{font-size:11px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msub{font-size:9px;line-height:1.25;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mproj{flex:none;font-size:12px;font-weight:700;min-width:34px;text-align:center;color:var(--dim)}
+.mside.hi .mproj{color:var(--up)}
+.mside.empty-side{color:var(--faint);font-size:9.5px;justify-content:center}
 
-table.msummary{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
-table.msummary col.num{width:70px}
-table.msummary th{text-align:right;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--faint);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
-table.msummary th.l,table.msummary td.l{text-align:left}
-table.msummary td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right}
+/* ------------------------------------------------------------------ tables
+   One hairline treatment for every table on the page: the players pivot,
+   the league table and the two card tables. */
+.tframe{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+#players-frame{max-height:min(66vh,620px)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:11px}
+th{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--label);font-weight:700;
+  text-align:right;white-space:nowrap;padding:5px 7px;background:var(--card);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
+th.l,td.l{text-align:left}
+td{padding:3px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line2);background:var(--card)}
+tbody tr:last-child td{border-bottom:0}
+th[data-key]{cursor:pointer;user-select:none}
+th[data-key]:hover{color:var(--ink)}
+th[aria-sort=ascending],th[aria-sort=descending]{color:var(--blue)}
+td.up{color:var(--up)} td.dn{color:var(--dn)}
+.sarrow{color:var(--blue)}
+.tfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
 
-/* ------------------------------------------------------------------ all players */
-.players-extra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
-.players-extra select{flex:1 1 150px;min-width:130px}
+/* ---- players pivot --------------------------------------------------
+   Every stat column is the same width, so the numbers line up into a grid
+   rather than a ragged edge, and the table keeps its own honest width and
+   scrolls inside its frame instead of being squeezed. */
+.ptable{width:auto;min-width:100%}
+.ptable th,.ptable td{min-width:52px}
+.ptable .c-rk{position:sticky;left:0;z-index:2;width:36px;min-width:36px;color:var(--faint);font-size:10px}
+.ptable .c-player{position:sticky;left:36px;z-index:2;text-align:left;
+  border-right:1px solid var(--line);min-width:172px;max-width:172px;overflow:hidden}
+.ptable thead .c-rk,.ptable thead .c-player{z-index:4}
+.ptable tbody tr{cursor:pointer}
+.ptable tbody tr:hover td{background:var(--hover)}
+.p-name{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-sub{font-size:9px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-own{color:var(--dim)}
+.p-own.you{color:var(--blue)}
+.ptable td.c-proj{font-weight:700;font-size:11.5px}
+.ptable td.nil{color:var(--faint)}
+.ptable td.up{color:var(--up)} .ptable td.dn{color:var(--dn)}
+.ptable .grp{border-left:1px solid var(--line)}
 
-.aprow{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--line);
-  cursor:pointer;border-radius:7px}
-.aprow:hover{background:var(--surf)}
-.ap-rk{flex:none;width:30px;color:var(--faint);font-size:12px;text-align:right}
-.ap-main{flex:1 1 auto;min-width:0}
-.ap-name{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ap-sub{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ap-owner{color:var(--faint)}
-.ap-owner.you{color:var(--up);font-weight:700}
-.ap-nums{flex:none;display:flex;gap:12px;align-items:baseline}
-.ap-num{text-align:right;min-width:38px}
-.ap-num .k{display:block;font-size:8.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-.ap-num .v{font-size:13px;font-weight:700}
-.ap-num.our .v{font-size:15px;color:var(--ink)}
-#players-showall{display:block;margin:10px auto 0}
-
-/* ------------------------------------------------------------------ league */
-#league-controls{margin-bottom:10px}
-#league-search{max-width:280px}
-table.league{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
-table.league col.num{width:48px}
-table.league th.l,table.league td.l{overflow:hidden;text-overflow:ellipsis}
-table.league th{text-align:right;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--faint);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap;
-  cursor:pointer;user-select:none}
-table.league th:hover{color:var(--ink)}
-table.league th:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-table.league th.l,table.league td.l{text-align:left}
-table.league td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-table.league th{padding-left:6px;padding-right:6px}
+/* ---- league --------------------------------------------------------- */
+#sec-league .tframe{max-width:820px}
+table.league{table-layout:fixed;min-width:520px}
+table.league col.num{width:58px}
+table.league td.l{overflow:hidden;text-overflow:ellipsis}
 table.league tr[data-rid]{cursor:pointer}
-table.league tr[data-rid]:hover{background:var(--surf)}
-table.league tr.mine{background:var(--upbg);cursor:default}
-table.league tr.mine:hover{background:var(--upbg)}
-table.league tr.mine td:first-child{font-weight:700;color:var(--ink)}
+table.league tbody tr:hover td{background:var(--hover)}
+table.league tr.mine td{background:var(--tint-in)}
+table.league tr.mine td:first-child{font-weight:700}
+table.msummary{table-layout:fixed}
+table.msummary col.num{width:64px}
 
-/* ------------------------------------------------------------------ player card modal */
+/* ------------------------------------------------------------------ player card */
 #cardwrap[hidden]{display:none}
-#cardbg{position:fixed;inset:0;background:rgba(4,5,8,.68);z-index:80}
-#card{position:fixed;z-index:81;top:4vh;left:50%;transform:translateX(-50%);
-  width:min(680px,94vw);max-height:92vh;overflow:auto;background:var(--surf2);
-  border:1px solid var(--line2);border-radius:12px;padding:20px 22px}
-#cardclose{position:absolute;top:12px;right:12px;width:28px;height:28px;padding:0;
-  border-radius:50%;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center}
-.card-eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
-.card-name{font-size:20px;font-weight:800;margin-top:3px}
-.card-sub{font-size:12px;color:var(--dim);margin-top:3px}
-.card-key{font-size:11.5px;color:var(--dim);margin:12px 0;display:flex;flex-wrap:wrap;gap:3px 14px}
-.sq{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px}
-.bg-sleeper{background:var(--wr)} .bg-shrunk{background:var(--rb)}
-.bg-rate{background:var(--te)} .bg-prorated{background:var(--db)}
-table.stat{width:100%;border-collapse:collapse;font-size:12.5px}
-table.stat th{text-align:right;font-size:10px;color:var(--faint);font-weight:700;padding:3px 6px;
-  border-bottom:1px solid var(--line2)}
-table.stat th.l,table.stat td.l{text-align:left}
-table.stat td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right}
-.card-total{font-size:13.5px;line-height:1.65;color:var(--dim);margin-top:14px;padding-top:12px;
+#cardbg{position:fixed;inset:0;background:rgba(23,23,26,.34);z-index:80}
+#card{position:fixed;z-index:81;top:5vh;left:50%;transform:translateX(-50%);
+  width:min(620px,94vw);max-height:90vh;overflow:auto;background:var(--card);
+  border:1px solid var(--line);border-radius:5px;padding:16px 18px}
+#cardclose{position:absolute;top:10px;right:10px;width:22px;height:22px;padding:0;
+  background:var(--card);border:1px solid var(--btn-line);border-radius:3px;color:var(--dim);
+  font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#cardclose:hover{background:var(--hover);color:var(--ink)}
+.card-eyebrow{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.card-name{font-size:15px;font-weight:700;margin-top:3px}
+.card-sub{font-size:10px;color:var(--dim);margin-top:2px}
+.card-key{font-size:9.5px;color:var(--dim);margin:10px 0;display:flex;flex-wrap:wrap;gap:2px 14px}
+.sq{display:inline-block;width:7px;height:7px;border-radius:1px;margin-right:5px;vertical-align:1px;
+  border:1px solid var(--line)}
+.bg-sleeper{background:#c9cfd8} .bg-shrunk{background:#b8cfc1}
+.bg-rate{background:#dcd0bb} .bg-prorated{background:#cdc6dd}
+.card-grp{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
+  font-weight:700;margin-top:14px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+.card-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:10px 0}
+.card-total{font-size:10.5px;line-height:1.6;color:var(--dim);margin-top:12px;padding-top:10px;
   border-top:1px solid var(--line)}
-.card-total b{color:var(--ink)}
-.card-total code{font-size:11.5px}
+.card-total b{color:var(--ink);font-weight:700}
+.card-total code{font-size:10px;background:var(--hover);padding:1px 3px;border-radius:2px}
 .fl{color:var(--faint)}
-.card-grp{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-  font-weight:700;margin-top:16px}
+#card table{margin-top:2px}
+#card th{position:static}
 
-/* ------------------------------------------------------------------ responsive */
-@media (max-width:520px){
-  .wrap{padding:0 10px 40px}
-  .tabbar{margin:0 -10px;padding:8px 10px}
-  .tabbtn{font-size:11.5px;padding:8px 2px}
-  .t-total{font-size:22px}
-  .prow-proj{font-size:19px;min-width:46px}
-  .ap-nums{gap:8px}
-  .ap-num{min-width:32px}
-  .hdr-matchup{gap:8px}
-  .mproj{font-size:14px;min-width:30px}
-  .mname-line{font-size:12.5px}
-  .mt-val{font-size:18px}
-}
+/* ------------------------------------------------------------------ desktop
+   Two columns of cards once there is room for them. */
 @media (min-width:900px){
-  /* Matchup is not clamped to the narrow reading column, so the two sides
-     of every slot row get real room once there is width to spare. */
-  #view-matchup .mside{padding:6px 10px}
-  #view-matchup .mname-line{font-size:14.5px}
-  #view-matchup .mproj{font-size:18px;min-width:46px}
+  .team-grid{grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);align-items:start}
+  #sec-lineup{grid-column:1;grid-row:1 / span 3}
+  #sec-startsit{grid-column:2;grid-row:1}
+  #sec-flagged{grid-column:2;grid-row:2}
+  #sec-bench{grid-column:2;grid-row:3}
+  #sec-adds{grid-column:1 / -1}
+  .matchup-grid{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start}
+  #sec-matchup-rows{grid-column:1;grid-row:1 / span 2}
+  #sec-matchup-summary{grid-column:2;grid-row:1}
+  #sec-matchup-flagged{grid-column:2;grid-row:2}
+  .f{min-width:38px}
+  .ptable .c-player{min-width:216px;max-width:216px}
+}
+
+/* ------------------------------------------------------------------ phone
+   Same design, smaller type. The form block stays on the row rather than
+   wrapping: it is the point of the row. */
+@media (max-width:699px){
+  .wrap{padding:10px 10px 32px}
+  .ptitle-desc{display:none}
+  /* Four boxes still fit across a phone, but not four boxes with two
+     footnotes each: the verdict stays, the count goes (it is on the page
+     below anyway). */
+  .sfoot{font-size:8.5px}
+  .sfoot .sn{display:none}
+  .prow{grid-template-columns:24px minmax(0,1fr) auto 40px;gap:6px}
+  .prow.empty{grid-template-columns:24px minmax(0,1fr)}
+  .add-row{grid-template-columns:24px minmax(0,1fr) 40px 40px;gap:6px}
+  .flag-row{grid-template-columns:24px minmax(0,1fr) auto;gap:6px}
+  .ava{display:none}
+  .form{gap:6px}
+  .f{min-width:27px}
+  .fk{font-size:7.5px}
+  .fv{font-size:9.5px}
+  .pname{font-size:11px}
+  .pproj{font-size:13px}
+  .t-total{font-size:19px}
+  .sv{font-size:13px}
+  .sk{font-size:8px}
+  .sfoot{font-size:8.5px}
+  .strip{gap:6px}
+  .sbox{padding:5px 6px}
+  .ptable .c-rk{width:30px;min-width:30px}
+  .ptable .c-player{left:30px;min-width:150px;max-width:150px}
+  input[type=search]{max-width:none}
+  .mproj{font-size:11px;min-width:28px}
+  .mname-line{font-size:10.5px}
 }
 @media (prefers-reduced-motion:no-preference){
-  .prow[data-pid],.aprow,.flag-row,.add-name,.swap-in,.swap-out,.mside[data-pid],
-  table.league tr[data-rid]{transition:background .12s ease}
-  button{transition:background .12s ease}
+  .prow[data-pid],.flag-row,.mside[data-pid],tbody tr{transition:background .1s ease}
 }
-
-.boot.bad{color:#ff8a80}
