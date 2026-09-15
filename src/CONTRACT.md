@@ -159,3 +159,82 @@ MODEL → `UI.render(model)`. Rosters and matchups re-read every 45s and the MOD
 recomputed from the same projections. The 14MB player list is cached in
 localStorage for 24h by `loadPlayers`. `test/assemble.mjs` inlines everything
 into `index.html`; `--check` fails if the committed page has drifted from src/.
+
+---
+
+# Phase 2: form, a serious light UI, and a pivotable Players table
+
+Three changes, built against the additions below.
+
+## New ROW fields: form, season to date
+
+The engine gains one additive pure function. It does not touch `buildRows` or
+`analyse`, so the equivalence harness keeps passing.
+
+```
+formFor(rows, actuals, scoring)   // mutates rows, returns diagnostics
+```
+
+`actuals` comes from `src/data.js` and is this season's real production:
+
+```
+{
+  season: { "4046": {gp: 2, pass_yd: 512, off_snp: 118, tm_off_snp: 131, ...}, ... },
+  weeks:  { 1: {id -> stat line}, 2: {...} },     // the last few weeks, individually
+  have:   [1, 2],                                  // weeks present, ascending
+  week:   3                                        // the week being projected
+}
+```
+
+Fields attached to every ROW (null when the season has no sample yet):
+
+```
+avg:   18.4,    // points per game this season, league scoring, season totals / gp
+l3:    21.2,    // mean of his last three games PLAYED (fewer if that is all there is)
+gpNow: 2,       // games with a stat line this season
+snap:  78,      // season snap share, percent: off_snp/tm_off_snp for offence,
+                //                             def_snp/tm_def_snp for defence
+snapL: 82,      // snap share in his most recent game, percent
+trend: 2.8,     // l3 - avg, the direction of travel
+log:   [{w: 1, pts: 22.4, snap: 80}, ...],   // oldest first, only weeks we fetched
+st:    {...}    // season-to-date stat totals, Sleeper's own keys, for the pivot columns
+```
+
+Rules. A week counts as a game played when the player has a stat line in that
+week's payload. Snap share is null, never zero, when the snap keys are absent:
+Sleeper does not always publish them and a zero would read as "benched" when it
+means "unknown". Percentages are rounded to whole numbers, points to one
+decimal. Nothing here is projected or estimated: it is what happened.
+
+## Look: a serious light instrument, not a phone game
+
+The dark theme, the big coloured pills and the rounded blue tabs go. The target
+is the light monospace dashboard in the owner's screenshot:
+
+- Light ground (`#fbfbf9`) under a faint 24px graph-paper grid, white cards with
+  a single hairline border and a 5px radius. No drop shadows, no gradients.
+- Monospace everywhere, including headings and numbers. Tabular figures.
+- Headings are 11px uppercase with letter spacing, in a muted grey.
+- Positions are small plain text in a fixed left column, not coloured badges.
+  Colour is reserved for meaning: green for a gain, red for a sit, blue for a
+  change, and nothing else.
+- Chips are 9px uppercase rectangles with a 2px radius, used sparingly.
+- Rows are dense, about 30px, separated by hairlines rather than cards.
+- Buttons and tabs are bordered rectangles, not pills.
+- Dense at every width; the phone keeps the same design, not a different one.
+
+## Players: a pivot table, and different columns for each side of the ball
+
+The Players view becomes a real table with a column set that follows what the
+manager is looking at, the way Sleeper switches its own columns.
+
+- **Source** toggle: `Week proj` (this week's projected stat line, `r.line`) or
+  `Season` (season to date, `r.st`). The stat columns change with it.
+- **Column set**: follows the position filter. Offence gets passing, rushing and
+  receiving; defence gets tackles, sacks, TFL, QB hits, passes defended,
+  takeaways. ALL gets the common set. An explicit override lets the manager pick
+  a set regardless of the filter.
+- **Always present**: rank, player, position and team, owner, our projection,
+  Sleeper's, hidden, AVG, L3, SNAP, GP.
+- Every column sorts, ascending and descending, on a heading click.
+- The table scrolls horizontally inside its own frame; the page never does.

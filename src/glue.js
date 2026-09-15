@@ -110,6 +110,11 @@ function buildModel(d, rows, meta){
 function compute(){
   ROWS = buildRows(DATA.players, DATA.proj, DATA.prior, DATA.scoring, {rostered: DATA.rostered, bye: DATA.bye});
   META = analyse(ROWS, DATA.slots, DATA.rosters.length || 12);
+  /* What has actually happened this season, alongside what is projected for
+     this week. Guarded because the actuals are the one feed the page can do
+     without: if Sleeper has not published a week yet, every form figure is
+     null and the views show a dot rather than a zero. */
+  if(typeof formFor === "function") formFor(ROWS, DATA.actuals, DATA.scoring);
   MODEL = buildModel(DATA, ROWS, META);
   UI.render(MODEL);
 }
