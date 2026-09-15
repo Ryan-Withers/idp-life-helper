@@ -142,7 +142,12 @@ async function loadData(opts){
   const week = st ? (st.display_week || st.week || st.leg || null) : null;
   if(!week) throw new Error("Sleeper did not say which week it is, so there is nothing to optimise yet.");
 
-  const [P, proj, prior, users, rosters, matchups, draftObj] = await Promise.all([
+  /* Weeks behind this one that form needs: up to five, never before week 1.
+     Week 1 has nothing behind it at all, and the range below is simply empty. */
+  const formWeeks = [];
+  for(let w = Math.max(1, week - 5); w <= week - 1; w++) formWeeks.push(w);
+
+  const [P, proj, prior, users, rosters, matchups, draftObj, actSeason, ...actWeekRes] = await Promise.all([
     loadPlayers(opts.hardPlayers),
     jget(`${SLEEPER}/projections/nfl/${seasonType}/${SEASON}/${week}`)
       .catch(() => jget(`${SLEEPER}/projections/nfl/regular/${SEASON}/${week}`)),
@@ -153,8 +158,34 @@ async function loadData(opts){
     /* Identity only. The draft is long over, but slot_to_roster_id is still the
        one place Sleeper says which roster sits in which seat, and slot 11 is
        known-good. Nothing else from this endpoint is used. */
-    jget(`${SLEEPER}/draft/${league.draft_id}`).catch(() => null)
+    jget(`${SLEEPER}/draft/${league.draft_id}`).catch(() => null),
+    /* This season to date, for avg and the pivot columns. Same seasonType
+       fallback as everything else here that reads a Sleeper season. */
+    /* Season to date. Unlike the prior year this one is mid-flight, so it is
+       allowed to come back empty or missing without failing the load: the
+       form pass falls back to the weeks below and says how many it had. */
+    jget(`${SLEEPER}/stats/nfl/${seasonType}/${SEASON}`)
+      .catch(() => jget(`${SLEEPER}/stats/nfl/regular/${SEASON}`))
+      .catch(() => ({})),
+    /* One request per week behind this one, in the same Promise.all so form
+       costs no extra round trip: every request fires immediately regardless of
+       where in this array it sits. A single bad week must not sink the whole
+       load, so each falls back exactly like the season call above and then,
+       if that also fails, resolves to null instead of rejecting. */
+    ...formWeeks.map(w => jget(`${SLEEPER}/stats/nfl/${seasonType}/${SEASON}/${w}`)
+      .catch(() => jget(`${SLEEPER}/stats/nfl/regular/${SEASON}/${w}`))
+      .catch(() => null))
   ]);
+
+  /* have is which of those weeks came back with anyone in them. A week that
+     has not been played yet fetches cleanly to {} rather than failing, and
+     must not be read downstream as a scoreless week for the whole league. */
+  const actWeeks = {}, haveWeeks = [];
+  formWeeks.forEach((w, i) => {
+    const wd = actWeekRes[i];
+    if(wd && Object.keys(wd).length){ actWeeks[w] = wd; haveWeeks.push(w); }
+  });
+  const actuals = {season: actSeason || {}, weeks: actWeeks, have: haveWeeks, week};
 
   const bye = byeTeams(P, proj);
   const {rostered, setStarters} = ownership(rosters);
@@ -186,7 +217,8 @@ async function loadData(opts){
     players: P, proj, prior,
     rosters, users, matchups,
     bye, rostered, setStarters, matchupOf, teamName,
-    myRid, fetched: new Date()
+    myRid, fetched: new Date(),
+    actuals
   };
 }
 

@@ -326,6 +326,124 @@ export function makeFixture(seed){
     draft_id:"draft1", roster_positions:rosterPositions, scoring_settings:scoring
   };
 
+  /* --------------------------------------------------------------- actuals */
+  /* This season's real production, weeks 1 to 4, with week 5 the one being
+     projected: exactly the shape data.js builds. Reuses the same rnd() stream
+     as everything above rather than a fresh seed, and runs after every other
+     field is already fixed, so it cannot move a single number the rest of
+     this fixture, or the equivalence harness, depends on.
+
+     Every branch formFor has to cope with gets at least one player, from a
+     pool this size, without hand-picking ids for it:
+       a full four-game season (every week present)
+       missed games (a line in some weeks, none in others)
+       no 2026 line anywhere (never touched a week 1-4 payload)
+       snap keys entirely absent for a player (Sleeper does not always send them)
+       a team snap count of 0 for a week, distinct from the count being absent
+       defenders, read off def_snp/tm_def_snp rather than the offensive keys
+       season.gp that disagrees with the count of weekly lines generated, so
+       the gp-present branch of gpNow is exercised and not just its fallback */
+  const ACT_WEEKS = [1, 2, 3, 4];
+  const actSeason = {}, actWeeks = {1:{}, 2:{}, 3:{}, 4:{}};
+
+  /* One snap total per team per week, shared by everyone on that team rather
+     than rolled per player: two teammates cannot have disagreed about how
+     many snaps their own offence played that Sunday. */
+  const teamSnaps = {};
+  for(const w of ACT_WEEKS){
+    teamSnaps[w] = {};
+    for(const t of NFL)
+      teamSnaps[w][t] = {
+        off: chance(0.04) ? 0 : Math.round(uni(58, 72)),
+        def: chance(0.04) ? 0 : Math.round(uni(55, 70))
+      };
+  }
+
+  /* One game's worth of production. Shaped like the proj block above (the
+     same fields score() prices), but its own draw, because actual results
+     agreeing with the projection to the decimal would test nothing. */
+  function actLine(pos, mag){
+    const l = {};
+    if(pos === "QB"){
+      const att = mag(20, 40);
+      l.pass_att = round(att, 0);
+      l.pass_cmp = round(att * uni(0.56, 0.72), 0);
+      l.pass_yd = round(att * uni(5.8, 8.6), 0);
+      l.pass_td = round(uni(0, 3), 0);
+      l.pass_int = round(uni(0, 2), 0);
+      l.rush_att = round(mag(0, 8), 0);
+      l.rush_yd = round(l.rush_att * uni(2, 6), 0);
+      l.rush_td = chance(0.12) ? 1 : 0;
+      l.fum_lost = chance(0.08) ? 1 : 0;
+    }else if(pos === "RB" || pos === "WR" || pos === "TE"){
+      const rushHeavy = pos === "RB";
+      l.rush_att = round(rushHeavy ? mag(4, 22) : uni(0, 1.5), 0);
+      l.rush_yd = round(l.rush_att * uni(2.8, 5.6), 0);
+      l.rush_td = chance(rushHeavy ? 0.22 : 0.03) ? 1 : 0;
+      l.rec_tgt = round(rushHeavy ? mag(0, 6) : mag(2, 12), 0);
+      l.rec = round(l.rec_tgt * uni(0.5, 0.85), 0);
+      l.rec_yd = round(l.rec * (rushHeavy ? uni(5, 10) : uni(8, 16)), 0);
+      l.rec_td = chance(0.18) ? 1 : 0;
+      l.fum_lost = chance(0.05) ? 1 : 0;
+    }else{
+      const solo = pos === "LB" ? mag(2, 8) : pos === "DB" ? mag(2, 7) : mag(1, 5);
+      l.idp_tkl_solo = round(solo, 0);
+      l.idp_tkl_ast = round(solo * uni(0.2, 0.8), 0);
+      l.idp_sack = chance(pos === "DL" ? 0.28 : pos === "LB" ? 0.14 : 0.03) ? 1 : 0;
+      l.idp_int = chance(pos === "DB" ? 0.1 : 0.02) ? 1 : 0;
+      l.idp_pass_def = round(pos === "DB" ? mag(0, 2) : pos === "LB" ? mag(0, 1) : uni(0, 0.4), 0);
+      l.idp_tkl_loss = round(pos === "DL" ? mag(0, 2) : pos === "LB" ? mag(0, 1.2) : uni(0, 0.4), 0);
+      l.idp_qb_hit = round(pos === "DL" ? mag(0, 3) : pos === "LB" ? mag(0, 1) : uni(0, 0.2), 0);
+      l.idp_ff = chance(0.05) ? 1 : 0;
+      l.idp_fum_rec = chance(0.04) ? 1 : 0;
+    }
+    return l;
+  }
+
+  for(const id of ids){
+    const [, pos, team] = players[id];
+    /* No team, or the 2026 coin toss misses: he never shows up in a week 1-4
+       payload at all. Rostered players are weighted to have played, same as
+       a real roster mostly consists of players who are actually active. */
+    const everPlayed = team && chance(rostered.has(id) ? 0.92 : 0.78);
+    if(!everPlayed) continue;
+
+    const q = clamp01(tal[id] + (rnd() - 0.5) * 0.25);
+    const mag = (lo, hi) => lerp(lo, hi, q);
+    const weeksPlayed = ACT_WEEKS.filter(() => chance(0.8));
+    if(!weeksPlayed.length) continue;         // rolled in, then missed all four
+
+    /* Decided once per player rather than per week: a player whose snaps
+       Sleeper never tracks is missing them consistently, not at random. */
+    const noSnapKeys = chance(0.08);
+    const isOff = OFFENCE.includes(pos);
+    const totals = {};
+
+    for(const w of weeksPlayed){
+      const wl = actLine(pos, mag);
+      if(!noSnapKeys){
+        const sh = teamSnaps[w][team] || {off:0, def:0};
+        const share = clamp01(mag(0.35, 0.95) + (rnd() - 0.5) * 0.1);
+        if(isOff){ wl.tm_off_snp = sh.off; wl.off_snp = Math.round(sh.off * share); }
+        else{ wl.tm_def_snp = sh.def; wl.def_snp = Math.round(sh.def * share); }
+      }
+      actWeeks[w][id] = wl;
+      for(const k in wl) totals[k] = (totals[k] || 0) + wl[k];
+    }
+
+    /* season.gp: half the time it agrees with the weeks actually generated,
+       a quarter of the time it is absent so gpNow falls back to counting
+       weeks itself, and a quarter of the time it disagrees on purpose, so a
+       formFor that quietly recomputed it instead of trusting Sleeper's own
+       figure would be caught. */
+    if(chance(0.5)) totals.gp = weeksPlayed.length;
+    else if(chance(0.5)) { /* left absent */ }
+    else totals.gp = Math.max(0, weeksPlayed.length + (chance(0.5) ? 1 : -1));
+
+    actSeason[id] = totals;
+  }
+  const haveWeeks = ACT_WEEKS.filter(w => Object.keys(actWeeks[w]).length > 0);
+
   return {
     seed: seed == null ? 20260905 : seed,
     players, proj, prior, scoring, rosterPositions, league,
@@ -336,6 +454,8 @@ export function makeFixture(seed){
     /* id -> owning roster_id, which is what the harness needs to rebuild each
        team's rows in a stable order on both sides. */
     owner: rosters.flatMap(r => r.players.map(id => [id, r.roster_id])),
-    noProjRostered: stripped
+    noProjRostered: stripped,
+    /* Exactly the shape data.js returns as `actuals`, for form. */
+    actuals: {season: actSeason, weeks: actWeeks, have: haveWeeks, week: 5}
   };
 }

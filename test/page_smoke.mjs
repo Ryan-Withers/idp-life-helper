@@ -33,6 +33,12 @@ const routes = [
   [/\/v1\/players\/nfl$/,              () => rawPlayers],
   [/\/v1\/projections\/nfl\/regular\/2026\/5$/, () => F.proj],
   [/\/v1\/stats\/nfl\/regular\/2025$/, () => F.prior],
+  /* This season so far: the season line, then one payload per fetched week. */
+  [/\/v1\/stats\/nfl\/(regular|post)\/2026$/,    () => (F.actuals && F.actuals.season) || {}],
+  [/\/v1\/stats\/nfl\/(regular|post)\/2026\/(\d+)$/, url => {
+    const w = +url.split("/").pop();
+    return (F.actuals && F.actuals.weeks && F.actuals.weeks[w]) || {};
+  }],
   [/\/v1\/league\/\d+\/users$/,        () => F.users],
   [/\/v1\/league\/\d+\/rosters$/,      () => F.rosters],
   [/\/v1\/league\/\d+\/matchups\/5$/,  () => F.matchups],
@@ -86,14 +92,14 @@ try{
         const hit = routes.find(([re]) => re.test(url.split("?")[0]));
         if(!hit){ errors.push("unrouted sleeper url " + url); return route.fulfill({ status: 404, body: "{}" }); }
         hits[url.split("/v1/")[1]] = (hits[url.split("/v1/")[1]] || 0) + 1;
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(hit[1]()) });
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(hit[1](url.split("?")[0])) });
       }
       if(url.startsWith("http://page.test/")) return route.fulfill({ status: 200, contentType: "text/html", body: html });
       errors.push("unexpected network request " + url);
       return route.fulfill({ status: 404, body: "" });
     });
     await page.goto("http://page.test/index.html");
-    await page.waitForFunction(() => /Week\s+5/.test(document.body.innerText), null, { timeout: 15000 }).catch(() => {});
+    await page.waitForFunction(() => /week\s+5/i.test(document.body.innerText), null, { timeout: 15000 }).catch(() => {});
     const text = await page.evaluate(() => document.body.innerText);
     if(process.env.DEBUG){
       const got = await page.evaluate(() => ({ me: [MODEL.me.rid, MODEL.me.total, MODEL.me.setTotal], opp: MODEL.opp,
@@ -103,7 +109,7 @@ try{
         teams: F.rosters.map(ro => [ro.roster_id, +total(ro).total.toFixed(1)]), rows: rows.length, R: meta.R }));
     }
     console.log(`\n${w}x${h}`);
-    check(/Week\s+5/.test(text), "header shows Week 5");
+    check(/week\s+5/i.test(text), "header shows Week 5");
     check(text.includes(me.total.toFixed(1)), `my optimal total ${me.total.toFixed(1)} on the page`);
     check(text.includes(opp.total.toFixed(1)), `opponent total ${opp.total.toFixed(1)} on the page`);
     check(text.includes(nameOf(MY_RID)), `my team name ${nameOf(MY_RID)}`);
@@ -114,6 +120,23 @@ try{
       if(!(await b.count())) b = page.getByRole("button", { name, exact: true }).first();
       if(await b.count()){ await b.click(); await page.waitForTimeout(150); }   // single-page layout: nothing to click
       return page.evaluate(() => document.body.innerText); };
+    /* Form: the season figures must reach the lineup rows, and a player with no
+       games must read as a dot rather than a zero, which would be a lie. */
+    const form = await page.evaluate(() => {
+      const rows = MODEL.rows || [];
+      const withGames = rows.filter(r => r.gpNow > 0);
+      const noGames = rows.filter(r => !r.gpNow);
+      const snapKnown = rows.filter(r => typeof r.snap === "number");
+      return { rows: rows.length, withGames: withGames.length, noGames: noGames.length,
+               snapKnown: snapKnown.length, sample: withGames[0] ? [withGames[0].n, withGames[0].avg, withGames[0].l3, withGames[0].snap] : null,
+               fields: rows.length ? ["avg","l3","gpNow","snap","snapL","trend","log","st"].filter(k => !(k in rows[0])) : ["no rows"] };
+    });
+    check(form.fields.length === 0, `every ROW carries the form fields (missing: ${form.fields.join(",") || "none"})`);
+    check(form.withGames > 0, `${form.withGames} players have a 2026 game logged`);
+    check(form.snapKnown > 0, `${form.snapKnown} players have a known snap share`);
+    const teamText = await page.evaluate(() => document.body.innerText);
+    check(/AVG/.test(teamText) && /L3/.test(teamText) && /SNAP/.test(teamText), "My team rows show AVG, L3 and SNAP");
+
     const playersText = await tab("Players");
     check(playersText.includes(topRow.n), `top projected player ${topRow.n} (${topRow.o}) listed on the Players tab`);
     const matchText = await tab("Matchup");
@@ -121,7 +144,10 @@ try{
     const leagueText = await tab("League");
     check(F.rosters.every(ro => leagueText.includes(nameOf(ro.roster_id))), "League tab lists all 12 teams");
     await tab("My team");
-    check((text.match(/\bADD\b/g) || []).length >= adds, `at least ${adds} ADD marks (engine says ${adds} waiver slots)`);
+    /* Counted as elements, not as text: innerText runs a player's name straight
+       into his chip, so "HurtsADD" never matches a word-boundary search. */
+    const addMarks = await page.evaluate(() => document.querySelectorAll("#view-team .c-add").length);
+    check(addMarks >= adds, `at least ${adds} ADD marks on My team (engine says ${adds} waiver slots, found ${addMarks})`);
     check(![text, playersText, matchText, leagueText].some(t => /—/.test(t)), "no em dash in visible text on any tab");
     for(const name of ["My team", "Matchup", "Players", "League"]){
       await tab(name);

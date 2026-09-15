@@ -559,11 +559,118 @@ function ages(lineup, roster){
   };
 }
 
+/* -------------------------------------------------------------------- form */
+/* Phase 2: this season's real production, laid alongside the projection.
+   Purely additive: reads rows and actuals and writes new fields onto each
+   row. Nothing above this line is read or changed, which is what keeps the
+   equivalence harness passing untouched. */
+
+/* Snap share for one stat line. Null rather than 0 when either count is
+   missing, or when the team figure is 0: Sleeper does not always publish
+   snaps, and a manufactured zero would read as "benched" when it only means
+   the feed had nothing to say. A real zero (the player suited up but played
+   none of the team's snaps) still comes through, because his own count is
+   present and only the reading, not the key, is zero. */
+function snapShare(line, position){
+  if(!line) return null;
+  const off = OFF.includes(position);
+  const own = line[off ? "off_snp" : "def_snp"];
+  const team = line[off ? "tm_off_snp" : "tm_def_snp"];
+  if(own == null || !team) return null;
+  const pct = Math.round(100 * own / team);
+  return pct < 0 ? 0 : pct > 100 ? 100 : pct;
+}
+
+/* formFor(rows, actuals, scoring) -> {scored, snapped, weeks}
+
+   Mutates every ROW with this season's real production: avg, l3, gpNow,
+   snap, snapL, trend, log and st. Scored with the same score() everyone else
+   on the board is scored with, under the player's own primary position, so
+   form reads on the same scale as the projection instead of a second
+   rulebook that could quietly disagree with the first.
+
+   A game played is a week with a stat line in it, never a games-played
+   counter on its own: a bye or an inactive leaves no line, and must not
+   read as a zero-point game. gpNow defers to season.gp when Sleeper
+   supplies one, because a partial pull of the last few weeks can undercount
+   a full season on purpose; only when that is absent does it fall back to
+   counting what was actually fetched. */
+/* Adds stat lines together key by key, skipping anything that is not a number
+   so a team abbreviation or a date never lands in an arithmetic total. */
+function sumLines(lines){
+  const out = {};
+  for(const l of lines) for(const k in l){
+    const v = l[k];
+    if(typeof v === "number" && isFinite(v)) out[k] = (out[k] || 0) + v;
+  }
+  return out;
+}
+
+function formFor(rows, actuals, scoring){
+  rows = rows || [];
+  actuals = actuals || {};
+  const season = actuals.season || {};
+  const weeksData = actuals.weeks || {};
+  /* Sorted rather than trusted: everything below reads this back to front for
+     "most recent", which only means something if it really is ascending. */
+  const have = (actuals.have || []).slice().sort((a, b) => a - b);
+  const round1 = x => +x.toFixed(1);
+
+  let scored = 0, snapped = 0;
+  for(const r of rows){
+    const sLine = season[r.id] || null;
+    /* Every fetched week this player has a line in, oldest first, with the
+       raw score kept alongside so l3 can average exact numbers rather than
+       three numbers that were each already rounded once. */
+    const played = [];
+    for(const w of have){
+      const wl = weeksData[w] && weeksData[w][r.id];
+      if(wl) played.push({w, line: wl, pts: score(wl, r.p, scoring)});
+    }
+
+    const hasGp = sLine && sLine.gp != null;
+    const gpNow = hasGp ? sLine.gp : played.length;
+    /* The season-to-date endpoint is mid-flight and can come back empty while
+       the weekly ones are populated. Scoring nothing and dividing it by a real
+       game count would print 0.0, which reads as "he averages nothing" when it
+       means "we were not told", so the weeks we did fetch answer instead. A
+       season line that exists and genuinely scores zero still gives zero: that
+       one is a fact about the player, not about the feed. */
+    const hasSeason = sLine && Object.keys(sLine).length > 0;
+    const avg = hasSeason && gpNow >= 1 ? round1(score(sLine, r.p, scoring) / gpNow)
+              : played.length ? round1(played.reduce((a, x) => a + x.pts, 0) / played.length)
+              : null;
+
+    const recent = played.slice(-3);
+    const l3 = recent.length
+      ? round1(recent.reduce((a, x) => a + x.pts, 0) / recent.length) : null;
+
+    r.avg = avg;
+    r.l3 = l3;
+    r.gpNow = gpNow;
+    r.snap = snapShare(sLine, r.p);
+    r.snapL = played.length ? snapShare(played[played.length - 1].line, r.p) : null;
+    r.trend = (l3 != null && avg != null) ? round1(l3 - avg) : null;
+    r.log = played.map(x => ({w: x.w, pts: round1(x.pts), snap: snapShare(x.line, r.p)}));
+    /* Season totals for the pivot columns. When the season feed is empty the
+       fetched weeks can stand in for it, but only while they ARE the season:
+       from week 7 on only the last five are pulled, and calling a five week
+       sum "season" would be wrong rather than merely thin. */
+    r.st = hasSeason ? sLine
+         : (played.length && have[0] === 1) ? sumLines(played.map(x => x.line))
+         : null;
+
+    if(avg != null) scored++;
+    if(r.snap != null) snapped++;
+  }
+  return {scored, snapped, weeks: have.length};
+}
+
 /* Node can require this file; the browser just ignores the guard. */
 if (typeof module !== "undefined") module.exports = {
   SEASON, PRIOR, PPR, OFF, DEF, FLEX_TAKES, BENCH,
   BACKFILL_PER_TACKLE, BACKFILL_PER_GAME, BACKFILL_RATE, RULES,
   LINEUP_BIG, FA_DEPTH,
   median, score, slotCounts, replacement, asRid, leagueRates, buildRows, analyse,
-  hungarian, lineupFor, freeAgents, weekLineup, slotKeys, ages
+  hungarian, lineupFor, freeAgents, weekLineup, slotKeys, ages, formFor, sumLines
 };
