@@ -666,11 +666,100 @@ function formFor(rows, actuals, scoring){
   return {scored, snapped, weeks: have.length};
 }
 
+/* ------------------------------------------------------------------- usage */
+/* Phase 3: per-game usage, position-aware. Points are one number built out of
+   many stats, and two very different roles can land on the same score: a
+   touchdown off a single target looks identical, once everything is priced
+   and summed, to a bell-cow workload. Usage is the role signal underneath
+   the points, touches, targets, tackles, the volume that does not swing on
+   one bounce, and it is what lets a manager tell a body of work from a coin
+   flip. Purely additive: reads rows only and writes usage/usageProj onto
+   them, so nothing above this line moves and the equivalence harness keeps
+   passing untouched. */
+
+/* Keys by primary position, in display order. WR and TE share one set, per
+   the contract. idp_tkl falls back to idp_tkl_solo + idp_tkl_ast when the
+   combined key itself is absent; the RB td entry is not a line field at
+   all, it is rush_td + rec_td. Both fallbacks live in readUsageKey below. */
+const REC_KEYS = [{k:"rec_tgt", label:"tgt"}, {k:"rec", label:"rec"},
+                  {k:"rec_yd", label:"yd"}, {k:"rec_td", label:"td"}];
+const USAGE_KEYS = {
+  QB: [{k:"pass_att", label:"att"}, {k:"pass_yd", label:"pa yd"}, {k:"pass_td", label:"pa td"},
+       {k:"pass_int", label:"int"}, {k:"rush_yd", label:"ru yd"}],
+  RB: [{k:"rush_att", label:"car"}, {k:"rush_yd", label:"ru yd"}, {k:"rec_tgt", label:"tgt"},
+       {k:"rec_yd", label:"re yd"}, {k:"td", label:"td"}],
+  WR: REC_KEYS,
+  TE: REC_KEYS,
+  DL: [{k:"idp_tkl", label:"tkl"}, {k:"idp_sack", label:"sk"}, {k:"idp_tkl_loss", label:"tfl"},
+       {k:"idp_qb_hit", label:"qbh"}],
+  LB: [{k:"idp_tkl", label:"tkl"}, {k:"idp_sack", label:"sk"}, {k:"idp_tkl_loss", label:"tfl"},
+       {k:"idp_pass_def", label:"pd"}],
+  DB: [{k:"idp_tkl", label:"tkl"}, {k:"idp_pass_def", label:"pd"}, {k:"idp_int", label:"int"},
+       {k:"idp_ff", label:"ff"}]
+};
+
+/* One usage key off one stat line, before any per-game division. null means
+   genuinely absent, never a manufactured zero: a key present with a real
+   value of 0 (line[k] === 0) still reads as 0, only a key that is not there
+   at all reads as null. */
+function readUsageKey(line, k){
+  if(k === "idp_tkl"){
+    if(line.idp_tkl != null) return line.idp_tkl;
+    const solo = line.idp_tkl_solo, ast = line.idp_tkl_ast;
+    return (solo == null && ast == null) ? null : (solo || 0) + (ast || 0);
+  }
+  if(k === "td"){
+    const ru = line.rush_td, re = line.rec_td;
+    return (ru == null && re == null) ? null : (ru || 0) + (re || 0);
+  }
+  const v = line[k];
+  return v == null ? null : v;
+}
+
+/* One row's worth of usage entries at one denominator: gpNow for the season
+   line, 1 (a no-op divide) for a projected line that is already one game.
+   Every key keeps its place even when its value is null, so the columns
+   line up across players who do not share a stat line. */
+function usageLine(keys, line, gp){
+  return keys.map(({k, label}) => {
+    const raw = readUsageKey(line, k);
+    if(raw == null) return {k, label, v:null};
+    let v = +(raw / gp).toFixed(1);
+    if(v === 0) v = 0;               // never -0
+    return {k, label, v};
+  });
+}
+
+/* usageFor(rows) -> {withUsage, withProj}
+
+   Mutates every ROW with usage (from r.st, per game over r.gpNow) and
+   usageProj (from r.line, already one game), the same key set and order for
+   both, read off USAGE_KEYS by primary position. usage is null when there is
+   no season sample yet (gpNow < 1) or no season line at all; usageProj is
+   null when there is no projected line. A position absent from USAGE_KEYS
+   (should not happen) gets null in both rather than a thrown error. */
+function usageFor(rows){
+  rows = rows || [];
+  let withUsage = 0, withProj = 0;
+  for(const r of rows){
+    const keys = USAGE_KEYS[r.p];
+    if(!keys){ r.usage = null; r.usageProj = null; continue; }
+
+    r.usage = (r.st && r.gpNow >= 1) ? usageLine(keys, r.st, r.gpNow) : null;
+    if(r.usage) withUsage++;
+
+    r.usageProj = r.line ? usageLine(keys, r.line, 1) : null;
+    if(r.usageProj) withProj++;
+  }
+  return {withUsage, withProj};
+}
+
 /* Node can require this file; the browser just ignores the guard. */
 if (typeof module !== "undefined") module.exports = {
   SEASON, PRIOR, PPR, OFF, DEF, FLEX_TAKES, BENCH,
-  BACKFILL_PER_TACKLE, BACKFILL_PER_GAME, BACKFILL_RATE, RULES,
+  BACKFILL_PER_TACKLE, BACKFILL_PER_GAME, BACKFILL_RATE, RULES, USAGE_KEYS,
   LINEUP_BIG, FA_DEPTH,
   median, score, slotCounts, replacement, asRid, leagueRates, buildRows, analyse,
-  hungarian, lineupFor, freeAgents, weekLineup, slotKeys, ages, formFor, sumLines
+  hungarian, lineupFor, freeAgents, weekLineup, slotKeys, ages, formFor, sumLines,
+  usageFor
 };

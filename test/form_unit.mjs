@@ -328,6 +328,223 @@ console.log("");
   eq("a partial window is not called season totals", rows[0].st, null);
 }
 
+/* ===========================================================================
+   Hand-checked cases for usageFor() in src/engine.js, Phase 3: per-game
+   usage, position-aware. Same style as above: literal expected values, the
+   arithmetic worked out in a comment beside them.
+   =========================================================================== */
+
+/* --------------------------------------------------------------------- RB */
+/* Four games. The computed td key is summed BEFORE the divide, not after:
+     rush_att  80 / 4 = 20.0        rush_yd  340 / 4 = 85.0
+     rec_tgt   20 / 4 =  5.0        rec_yd    96 / 4 = 24.0
+     td   (3 rush_td + 1 rec_td) =    4 / 4 =  1.0                            */
+{
+  const r = row("rb4", "RB");
+  r.st = {rush_att:80, rush_yd:340, rec_tgt:20, rec_yd:96, rush_td:3, rec_td:1};
+  r.gpNow = 4;
+  const out = E.usageFor([r]);
+  deep("usage RB: car, ru yd, tgt, re yd, computed td", r.usage, [
+    {k:"rush_att", label:"car", v:20},
+    {k:"rush_yd", label:"ru yd", v:85},
+    {k:"rec_tgt", label:"tgt", v:5},
+    {k:"rec_yd", label:"re yd", v:24},
+    {k:"td", label:"td", v:1}
+  ]);
+  eq("usage RB: no line means usageProj null", r.usageProj, null);
+  eq("usageFor: withUsage counts this row", out.withUsage, 1);
+  eq("usageFor: withProj sees no line here", out.withProj, 0);
+}
+
+/* --------------------------------------------------------------------- WR */
+/* Season (5 games) and this week's projection together, so the same case
+   also covers usageProj: a projected line is already one game, no divide.
+     rec_tgt 30 / 5 =  6.0     rec  22 / 5 = 4.4     rec_yd 260 / 5 = 52.0
+     rec_td   2 / 5 =  0.4
+   Projection, gp = 1: the four line values pass straight through.           */
+{
+  const r = row("wr5", "WR");
+  r.st = {rec_tgt:30, rec:22, rec_yd:260, rec_td:2};
+  r.gpNow = 5;
+  r.line = {rec_tgt:7, rec:5, rec_yd:64, rec_td:1};
+  E.usageFor([r]);
+  deep("usage WR: tgt, rec, yd, td", r.usage, [
+    {k:"rec_tgt", label:"tgt", v:6},
+    {k:"rec", label:"rec", v:4.4},
+    {k:"rec_yd", label:"yd", v:52},
+    {k:"rec_td", label:"td", v:0.4}
+  ]);
+  deep("usageProj WR: same keys, this week's line, gp = 1", r.usageProj, [
+    {k:"rec_tgt", label:"tgt", v:7},
+    {k:"rec", label:"rec", v:5},
+    {k:"rec_yd", label:"yd", v:64},
+    {k:"rec_td", label:"td", v:1}
+  ]);
+}
+
+/* --------------------------------------------------------------------- QB */
+/*   pass_att 150 / 5 = 30.0    pass_yd 1100 / 5 = 220.0   pass_td 8 / 5 = 1.6
+     pass_int  3 / 5 =  0.6     rush_yd   40 / 5 =   8.0                      */
+{
+  const r = row("qb5", "QB");
+  r.st = {pass_att:150, pass_yd:1100, pass_td:8, pass_int:3, rush_yd:40};
+  r.gpNow = 5;
+  E.usageFor([r]);
+  deep("usage QB: att, pa yd, pa td, int, ru yd", r.usage, [
+    {k:"pass_att", label:"att", v:30},
+    {k:"pass_yd", label:"pa yd", v:220},
+    {k:"pass_td", label:"pa td", v:1.6},
+    {k:"pass_int", label:"int", v:0.6},
+    {k:"rush_yd", label:"ru yd", v:8}
+  ]);
+}
+
+/* --------------------------------------------------------------------- DL */
+/* idp_tkl present directly: no fallback, used as is.
+     idp_tkl 40/4=10.0  idp_sack 6/4=1.5  idp_tkl_loss 8/4=2.0  idp_qb_hit 14/4=3.5 */
+{
+  const r = row("dl4", "DL");
+  r.st = {idp_tkl:40, idp_sack:6, idp_tkl_loss:8, idp_qb_hit:14};
+  r.gpNow = 4;
+  E.usageFor([r]);
+  deep("usage DL: idp_tkl present, no fallback needed", r.usage, [
+    {k:"idp_tkl", label:"tkl", v:10},
+    {k:"idp_sack", label:"sk", v:1.5},
+    {k:"idp_tkl_loss", label:"tfl", v:2},
+    {k:"idp_qb_hit", label:"qbh", v:3.5}
+  ]);
+}
+
+/* --------------------------------------------------------------------- LB */
+/* idp_tkl absent, solo and ast present: fallback sums them before dividing.
+     (24 solo + 8 ast) / 4 = 8.0   idp_sack 4/4=1.0   idp_tkl_loss 6/4=1.5
+     idp_pass_def 2/4=0.5                                                    */
+{
+  const r = row("lb4", "LB");
+  r.st = {idp_tkl_solo:24, idp_tkl_ast:8, idp_sack:4, idp_tkl_loss:6, idp_pass_def:2};
+  r.gpNow = 4;
+  E.usageFor([r]);
+  deep("usage LB: idp_tkl absent falls back to solo + ast", r.usage, [
+    {k:"idp_tkl", label:"tkl", v:8},
+    {k:"idp_sack", label:"sk", v:1},
+    {k:"idp_tkl_loss", label:"tfl", v:1.5},
+    {k:"idp_pass_def", label:"pd", v:0.5}
+  ]);
+}
+
+/* --------------------------------------------------------------------- DB */
+/* idp_tkl, idp_tkl_solo and idp_tkl_ast all absent: the fallback itself has
+   nothing to sum, so that entry is null, in place, not dropped. The other
+   three keys read normally: idp_pass_def 6/3=2.0, idp_int 3/3=1.0, idp_ff
+   is missing from the line entirely and is null too. Array length stays 4. */
+{
+  const r = row("db3", "DB");
+  r.st = {idp_pass_def:6, idp_int:3};
+  r.gpNow = 3;
+  E.usageFor([r]);
+  eq("usage DB: array length unchanged with two nulls in it", r.usage.length, 4);
+  deep("usage DB: idp_tkl null (nothing to fall back on), idp_ff null (absent)", r.usage, [
+    {k:"idp_tkl", label:"tkl", v:null},
+    {k:"idp_pass_def", label:"pd", v:2},
+    {k:"idp_int", label:"int", v:1},
+    {k:"idp_ff", label:"ff", v:null}
+  ]);
+}
+
+/* ------------------------------------------------------------- gpNow: 0 */
+/* No games played yet: usage is null outright, but usageProj does not care
+   about gpNow at all and still comes from the line. */
+{
+  const r = row("gp0", "WR");
+  r.st = {rec_tgt:10, rec:8, rec_yd:90, rec_td:1};
+  r.gpNow = 0;
+  r.line = {rec_tgt:3, rec:2, rec_yd:24, rec_td:0};
+  E.usageFor([r]);
+  eq("usage: gpNow 0 means usage is null", r.usage, null);
+  deep("usageProj: unaffected by gpNow, still built from the line", r.usageProj, [
+    {k:"rec_tgt", label:"tgt", v:3},
+    {k:"rec", label:"rec", v:2},
+    {k:"rec_yd", label:"yd", v:24},
+    {k:"rec_td", label:"td", v:0}     // a real zero target, not a missing key
+  ]);
+}
+
+/* -------------------------------------------------------- missing st/line */
+{
+  const r = row("nsl", "QB");
+  r.gpNow = 5;                        // games played, but no season line at all
+  E.usageFor([r]);
+  eq("usage: no st at all is null even with a real gpNow", r.usage, null);
+  eq("usageProj: no line at all is null", r.usageProj, null);
+}
+
+/* ------------------------------------------------------- unknown position */
+{
+  const r = row("kk", "K");           // not in USAGE_KEYS
+  r.st = {fg_made:3}; r.gpNow = 2; r.line = {fg_made:1};
+  let threw = false;
+  try{ E.usageFor([r]); }catch(e){ threw = true; }
+  eq("usage: unknown position does not throw", threw, false);
+  eq("usage: unknown position gets null usage", r.usage, null);
+  eq("usage: unknown position gets null usageProj", r.usageProj, null);
+}
+
+/* --------------------------------------------------------- empty/undefined */
+{
+  let threw = false, out = null;
+  try{ out = E.usageFor([]); }catch(e){ threw = true; }
+  eq("usage: empty rows does not throw", threw, false);
+  deep("usage: empty rows returns zero counts", out, {withUsage:0, withProj:0});
+}
+{
+  let threw = false, out = null;
+  try{ out = E.usageFor(undefined); }catch(e){ threw = true; }
+  eq("usage: undefined rows does not throw", threw, false);
+  deep("usage: undefined rows returns zero counts", out, {withUsage:0, withProj:0});
+}
+
+/* ------------------------------------------------------------ return value */
+/* withUsage and withProj count independently, since a player can have one
+   without the other.
+     ua: RB, gpNow 2 and a line   -> counts toward both
+     ub: RB, gpNow 0 but has a line -> usage null, usageProj only
+     uc: RB, neither st nor line  -> counts toward neither                   */
+{
+  const ra = row("ua", "RB"), rb = row("ub", "RB"), rc = row("uc", "RB");
+  ra.st = {rush_att:10, rush_yd:40}; ra.gpNow = 2; ra.line = {rush_att:6, rush_yd:22};
+  rb.st = {rush_att:10, rush_yd:40}; rb.gpNow = 0; rb.line = {rush_att:6, rush_yd:22};
+  const out = E.usageFor([ra, rb, rc]);
+  deep("usageFor: withUsage and withProj counted independently",
+       out, {withUsage:1, withProj:2});
+}
+
+/* ------------------------------------------------------- fields left alone */
+/* usageFor only ever writes usage and usageProj. Every other field on the
+   row, including formFor's own (avg, l3, snap, log), must be exactly what it
+   was before the call, on both a row usageFor gave real usage to and one it
+   left null. */
+{
+  const rows = [row("keep1", "RB"), row("keep2", "K")];
+  for(const r of rows){
+    r.avg = 12.3; r.l3 = 15.6; r.snap = 62; r.log = [{w:1, pts:10, snap:50}];
+  }
+  rows[0].st = {rush_att:40, rush_yd:180, rec_tgt:10, rec_yd:60, rush_td:1, rec_td:0};
+  rows[0].gpNow = 4;
+  rows[0].line = {rush_att:12, rush_yd:55, rec_tgt:3, rec_yd:20, rush_td:0, rec_td:0};
+  E.usageFor(rows);
+  for(const r of rows){
+    eq("untouched by usageFor: o on " + r.id, r.o, SENT.o);
+    eq("untouched by usageFor: sleep on " + r.id, r.sleep, SENT.sleep);
+    eq("untouched by usageFor: hid on " + r.id, r.hid, SENT.hid);
+    eq("untouched by usageFor: v on " + r.id, r.v, SENT.v);
+    eq("untouched by usageFor: rk on " + r.id, r.rk, SENT.rk);
+    eq("untouched by usageFor: avg on " + r.id, r.avg, 12.3);
+    eq("untouched by usageFor: l3 on " + r.id, r.l3, 15.6);
+    eq("untouched by usageFor: snap on " + r.id, r.snap, 62);
+    deep("untouched by usageFor: log on " + r.id, r.log, [{w:1, pts:10, snap:50}]);
+  }
+}
+
 console.log("  form unit cases");
 console.log("  " + "-".repeat(66));
 if(fails.length){
