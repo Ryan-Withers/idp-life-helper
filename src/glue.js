@@ -115,6 +115,10 @@ function compute(){
      without: if Sleeper has not published a week yet, every form figure is
      null and the views show a dot rather than a zero. */
   if(typeof formFor === "function") formFor(ROWS, DATA.actuals, DATA.scoring);
+  /* Usage is the role signal: touches, targets, tackles per game say whether a
+     projection is believable. Position-aware, so a DB gets passes defended
+     where a RB gets carries. */
+  if(typeof usageFor === "function") usageFor(ROWS);
   MODEL = buildModel(DATA, ROWS, META);
   UI.render(MODEL);
 }

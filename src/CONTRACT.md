@@ -238,3 +238,79 @@ manager is looking at, the way Sleeper switches its own columns.
   Sleeper's, hidden, AVG, L3, SNAP, GP.
 - Every column sorts, ascending and descending, on a heading click.
 - The table scrolls horizontally inside its own frame; the page never does.
+
+---
+
+# Phase 3: the decision row
+
+The owner's words: "Look at my lineup, easily see last few games scores and
+snap %. I want to see those numbers for every player easily, even if they're
+like small below the player. I need to be able to make an easy decision based
+on form, snaps, proj and key stats." And: "the font is terrible, make it
+neutral, same font as github".
+
+## Typeface and palette: GitHub's
+
+Text is GitHub's system sans stack:
+`-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif`.
+Numbers that must line up in columns (projections, game logs, tables) use
+GitHub's mono stack with tabular figures:
+`ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace`.
+Nothing else is monospace. Palette is GitHub's light theme: ground `#f6f8fa`,
+cards `#ffffff` with a `#d0d7de` border and 6px radius, text `#1f2328`, muted
+`#656d76`, faint `#8c959f`, hairline `#d8dee4`, hover `#f6f8fa`, blue
+`#0969da`, green `#1a7f37`, red `#cf222e`, tints `#ddf4ff` (in) and `#ffebe9`
+(out). No graph-paper grid: the ground is plain. Base type 13px, line height
+1.45. Dense, neutral, no decoration.
+
+## New ROW fields: usage
+
+```
+usageFor(rows)   // pure, mutates rows, position-aware
+```
+
+Attaches to every ROW:
+
+```
+usage:     [{k: "rush_att", label: "car", v: 14.2}, ...]   // season, PER GAME (st / gpNow); null when gpNow < 1
+usageProj: [{k: "rush_att", label: "car", v: 16.0}, ...]   // this week's projected line, same keys, same order
+```
+
+Keys by primary position, in display order:
+
+| p  | keys |
+|----|------|
+| QB | pass_att att, pass_yd pa yd, pass_td pa td, pass_int int, rush_yd ru yd |
+| RB | rush_att car, rush_yd ru yd, rec_tgt tgt, rec_yd re yd, td (rush_td + rec_td) |
+| WR, TE | rec_tgt tgt, rec rec, rec_yd yd, rec_td td |
+| DL | idp_tkl tkl, idp_sack sk, idp_tkl_loss tfl, idp_qb_hit qbh |
+| LB | idp_tkl tkl, idp_sack sk, idp_tkl_loss tfl, idp_pass_def pd |
+| DB | idp_tkl tkl, idp_pass_def pd, idp_int int, idp_ff ff |
+
+`idp_tkl` falls back to `idp_tkl_solo + idp_tkl_ast` when absent. A key
+missing from the line is `v: null`, kept in place so the columns stay aligned
+across players. Per-game values to one decimal; a projected line is already
+one game.
+
+## The row
+
+Every player row on My team (lineup, bench, adds) and the swap lines on
+Start / sit carry a **form strip** directly under the name line. It is a small
+table, one column per fetched week (oldest left, from `log`), then a divider,
+then the season:
+
+```
+        W1     W2     W3     W4  │  AVG   L3
+pts   18.2   24.1    9.7   22.0  │ 18.5  18.6
+snap   84%    81%    79%    88%  │  83%
+```
+
+Under it, one line of usage: `14.2 car · 92 ru yd · 3.8 tgt · 31 re yd · 0.8 td /g`,
+with a second, fainter reading of the same keys from the projection when it
+differs materially, or on hover / in the card. Missing values are `·`. A player
+with an empty `log` still gets the strip frame with dots, so the eye finds the
+same thing in the same place on every row. L3 keeps its trend colour.
+
+Matchup rows carry a compact variant: the last three scores and last snap
+share, one line, both sides. The Players table is unchanged except for the
+typeface.

@@ -14,7 +14,9 @@ No build step, no data files, no keys. The only hosts contacted are
 
 ## What the page shows
 
-The header stays on every view: league, week, your optimal total against
+The page is set in GitHub's system typeface and palette: neutral sans for
+text, monospace only where numbers need to line up. The header stays on
+every view: league, week, your optimal total against
 your opponent's, the total of the lineup you actually have set, and a strip
 of four figures (optimal, set, the swing between them, and the points
 Sleeper cannot see). Four tabs below it, each with a search box and position
@@ -24,15 +26,22 @@ the view. The active tab and every filter survive the 45-second roster poll.
 **My team** (`#team`)
 - Lineup, one row per slot in roster order. The big number on the right is
   OUR projection; under the name, Sleeper's own number and, for defenders,
-  the points Sleeper does not see. Between them, how he is actually going:
-  AVG (points per game this season), L3 (his last three games, green when
-  he is trending up and red when down) and SNAP (share of his team's snaps).
-  Chips for BYE, injury designation, "no proj", and ADD when the slot is
-  best filled by a free agent nobody rosters.
+  the points Sleeper does not see. Under that, the decision row: a small
+  game log with one column per recent week showing his points and his snap
+  share that game, then AVG (season points per game) and L3 (his last three
+  games, green when trending up, red when down), with the game count beside
+  it in yellow when the sample is under three. Below the log, his usage per
+  game for his position (carries, targets and yards for a back; tackles,
+  sacks and passes defended for a defender) with this week's projected
+  usage beside it, so the role behind the projection is visible. Chips for
+  BYE, injury designation, "no proj", and ADD when the slot is best filled
+  by a free agent nobody rosters.
 - Start / sit: the gap in points between the lineup set in Sleeper and the
-  optimal one, then the swaps, one per line, biggest gain first. Each player
-  coming in is paired with the weakest player going out who could stand in
-  his slot; a player out with nobody coming in is a plain SIT.
+  optimal one, then the swaps, one per line, biggest gain first, each with
+  the form of both players beneath it so the case for the swap is on the
+  page. Each player coming in is paired with the weakest player going out
+  who could stand in his slot; a player out with nobody coming in is a
+  plain SIT.
 - Flagged: bye, no projection or a designation, and whether each is starting.
 - Bench by projection. Adds: the six best free agents per position and who
   they would replace.
@@ -42,7 +51,7 @@ the view. The active tab and every filter survive the 45-second roster poll.
   available. Optimal / As set toggle: the optimal lineups or the lineups
   actually set in Sleeper.
 - One row per slot, your player left, theirs right, the higher projection
-  highlighted. Group summary (offence, IDP, total) with the difference, and
+  highlighted, each with his last three scores and last snap share. Group summary (offence, IDP, total) with the difference, and
   the opponent's flagged players.
 
 **Players** (`#players`)
@@ -91,6 +100,15 @@ Slots are not filled for coverage: a player projected at zero is left out
 rather than started, and a slot a free agent wins is an ADD, not a lineup
 choice. Start / sit compares that lineup against the `starters` array Sleeper
 reports for the roster.
+
+**Usage.** Per-game usage is the season stat line divided by games played,
+with the keys chosen by position: attempts, yards, touchdowns and picks for
+a quarterback; carries, rushing yards, targets, receiving yards and
+touchdowns for a back; targets, catches, yards and touchdowns for a
+receiver; tackles, sacks, tackles for loss and QB hits or passes defended
+for the defensive positions. Total tackles fall back to solo plus assisted
+when Sleeper omits the combined figure. The projected usage beside it is
+this week's stat line under the same keys.
 
 **Form.** AVG is this season's points per game under league scoring: the
 season stat line divided by games played. L3 is the mean of his last three
