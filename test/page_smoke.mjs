@@ -135,7 +135,23 @@ try{
     check(form.withGames > 0, `${form.withGames} players have a 2026 game logged`);
     check(form.snapKnown > 0, `${form.snapKnown} players have a known snap share`);
     const teamText = await page.evaluate(() => document.body.innerText);
-    check(/AVG/.test(teamText) && /L3/.test(teamText) && /SNAP/.test(teamText), "My team rows show AVG, L3 and SNAP");
+    check(/AVG/.test(teamText) && /L3/.test(teamText) && /snap/i.test(teamText), "My team rows show AVG, L3 and snap");
+    /* The decision row: a per-week game log and a usage line under every player,
+       with position-aware labels, so a RB reads carries where a DB reads passes defended. */
+    const strip = await page.evaluate(() => {
+      const rows = MODEL.rows || [];
+      const rb = rows.find(r => r.p === "RB" && r.usage), db = rows.find(r => r.p === "DB" && r.usage);
+      const weekHeads = (document.body.innerText.match(/\bW\d\b/g) || []).length;
+      return { hasUsage: rows.length ? "usage" in rows[0] && "usageProj" in rows[0] : false,
+               rbLabels: rb ? rb.usage.map(u => u.label).join(" ") : null,
+               dbLabels: db ? db.usage.map(u => u.label).join(" ") : null, weekHeads };
+    });
+    check(strip.hasUsage, "every ROW carries usage and usageProj");
+    check(strip.rbLabels === "car ru yd tgt re yd td", `RB usage labels are position-aware (${strip.rbLabels})`);
+    check(strip.dbLabels === "tkl pd int ff", `DB usage labels are position-aware (${strip.dbLabels})`);
+    check(strip.weekHeads >= 19, `game-log week headers on My team (${strip.weekHeads} found, one per fetched week per row)`);
+    const fonts = await page.evaluate(() => [getComputedStyle(document.body).fontFamily.split(",")[0].trim()]);
+    check(/apple-system/.test(fonts[0]), `body typeface is GitHub's system sans (${fonts[0]})`);
 
     const playersText = await tab("Players");
     check(playersText.includes(topRow.n), `top projected player ${topRow.n} (${topRow.o}) listed on the Players tab`);

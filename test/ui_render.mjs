@@ -88,7 +88,7 @@ const uiJs = readFileSync(path.join(SRC, "ui.js"), "utf8");
 
 const page = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light">
 <title>ui test</title>
 <style>${css}</style>
 </head><body>
@@ -167,6 +167,43 @@ async function runViewport(width, height, shots){
   assert(JSON.stringify(await visibleViews(page)) === JSON.stringify(["team"]), "My team is the default visible view");
   assert((await page.getAttribute("#tab-team", "aria-selected")) === "true", "tab-team starts aria-selected");
 
+  /* ---- typeface and ground: GitHub's, not a terminal ------------------
+     Sans everywhere a person reads words, mono only on the figures that
+     have to line up into columns, and a plain ground with no graph paper
+     drawn under it. */
+  const type = await page.evaluate(() => {
+    const ff = el => el ? getComputedStyle(el).fontFamily : "";
+    return {
+      body: ff(document.body),
+      name: ff(document.querySelector(".pname")),
+      head: ff(document.querySelector(".sec-h")),
+      tab: ff(document.querySelector(".tabbtn")),
+      chip: ff(document.querySelector(".chip")),
+      proj: ff(document.querySelector(".pproj")),
+      cell: ff(document.querySelector(".fstrip .fs-v")),
+      total: ff(document.querySelector(".t-total")),
+      sv: ff(document.querySelector(".sv")),
+      variant: document.querySelector(".pproj") ? getComputedStyle(document.querySelector(".pproj")).fontVariantNumeric : ""
+    };
+  });
+  assert(type.body.startsWith("-apple-system"), `body is GitHub's system sans (${type.body.slice(0, 40)})`);
+  for(const k of ["name", "head", "tab", "chip"])
+    assert(type[k].startsWith("-apple-system"), `${k} is sans, not monospace (${type[k].slice(0, 30)})`);
+  for(const k of ["proj", "cell", "total", "sv"])
+    assert(type[k].startsWith("ui-monospace"), `${k} is GitHub's mono stack (${type[k].slice(0, 30)})`);
+  assert(type.variant.includes("tabular-nums"), `the projection uses tabular figures (${type.variant})`);
+
+  const grid = await page.evaluate(() => {
+    const bad = [];
+    document.querySelectorAll("html, body, #app, .card, .wrap, .prow, .tabbar").forEach(el => {
+      const bg = getComputedStyle(el).backgroundImage;
+      if(bg && bg !== "none") bad.push(el.tagName + "." + el.className + ": " + bg.slice(0, 60));
+    });
+    return {bad, ground: getComputedStyle(document.body).backgroundColor};
+  });
+  assert(grid.bad.length === 0, "nothing draws the old graph-paper grid (" + grid.bad.join("; ") + ")");
+  assert(grid.ground === "rgb(246, 248, 250)", `the ground is GitHub's plain #f6f8fa (${grid.ground})`);
+
   const headings = await page.evaluate(() => {
     const texts = new Set();
     document.querySelectorAll("h1,h2,h3").forEach(h => { if(h.textContent.trim()) texts.add(h.textContent.trim()); });
@@ -234,45 +271,167 @@ async function runViewport(width, height, shots){
   }
   await page.click('#team-posfilter button[data-pos="ALL"]');
 
-  /* ---- form at a glance: AVG, L3 and SNAP on every lineup and bench row,
-     a middle dot (never a 0) wherever the MODEL has no sample ------------ */
-  const formOf = sel => page.evaluate(s2 => [...document.querySelectorAll(s2)].map(el => ({
-    pid: el.getAttribute("data-pid"),
-    keys: [...el.querySelectorAll(".form .fk")].map(k => k.textContent.trim()),
-    vals: [...el.querySelectorAll(".form .fv")].map(v => v.textContent.trim()),
-    meta: (el.querySelector(".pmeta") || {textContent: ""}).textContent
-  })), sel);
+  /* ---- the form strip: on every lineup, bench and adds row ------------
+     One column per fetched week plus AVG and L3, points over snap share,
+     and a middle dot (never a 0) wherever the MODEL has no sample. Phase
+     3 moved AVG/L3/SNAP out of a three-figure huddle and into this strip,
+     and moved the games-played count out of the meta line onto the strip's
+     right edge, beside the figures it qualifies. */
+  const formOf = sel => page.evaluate(s2 => [...document.querySelectorAll(s2)].map(el => {
+    const strip = el.querySelector(".fstrip");
+    const txt = n => [...(strip ? strip.querySelectorAll(n) : [])].map(c => c.textContent.trim());
+    return {
+      pid: el.getAttribute("data-pid") || (el.querySelector("[data-pid]") || {getAttribute: () => null}).getAttribute("data-pid"),
+      hasStrip: !!strip,
+      weeks: txt(".fs-w"),
+      pads: strip ? strip.querySelectorAll("tr:first-child .fs-pad").length : 0,
+      sum: txt(".fs-h"),
+      labels: txt(".fs-k"),
+      pts: txt("tr:nth-child(2) .fs-v"),
+      snaps: txt("tr:nth-child(3) .fs-v"),
+      gp: (el.querySelector(".fs-gp") || {textContent: ""}).textContent.trim(),
+      gpThin: !!el.querySelector(".fs-gp.thin"),
+      use: [...el.querySelectorAll(".uline:not(.uproj) .uk")].map(k => k.textContent.trim()),
+      useVals: [...el.querySelectorAll(".uline:not(.uproj) .uv")].map(k => k.textContent.trim()),
+      proj: [...el.querySelectorAll(".uline.uproj .uk")].map(k => k.textContent.trim()),
+      tail: ([...el.querySelectorAll(".uline:not(.uproj) .ug")].pop() || {textContent: ""}).textContent.trim(),
+      urows: el.querySelectorAll(".urow").length
+    };
+  }), sel);
+
+  const byId = new Map(model.rows.map(r => [r.id, r]));
+  const logLen = pid => { const r = byId.get(pid); return (r && Array.isArray(r.log)) ? r.log.length : 0; };
 
   const lineupForm = await formOf("#team-lineup-rows .prow[data-pid]");
   const benchForm = await formOf("#sec-bench .prow[data-pid]");
-  const WANT_KEYS = JSON.stringify(["AVG", "L3", "SNAP"]);
-  assert(lineupForm.length > 0 && lineupForm.every(r => JSON.stringify(r.keys) === WANT_KEYS),
-    `every lineup row carries AVG, L3 and SNAP (${lineupForm.length} rows)`);
-  assert(benchForm.length > 0 && benchForm.every(r => JSON.stringify(r.keys) === WANT_KEYS),
-    `every bench row carries AVG, L3 and SNAP (${benchForm.length} rows)`);
-  assert(lineupForm.every(r => r.vals.length === 3) && benchForm.every(r => r.vals.length === 3),
-    "every lineup and bench row shows three form values");
-
-  const noSampleIds = new Set(model.rows.filter(r => r.avg === null && r.l3 === null && r.snap === null).map(r => r.id));
-  const DOTS = JSON.stringify([DOT, DOT, DOT]);
-  const lineupNull = lineupForm.filter(r => noSampleIds.has(r.pid));
-  const benchNull = benchForm.filter(r => noSampleIds.has(r.pid));
-  assert(lineupNull.length > 0 && lineupNull.every(r => JSON.stringify(r.vals) === DOTS),
-    `a lineup row with no sample reads as three middle dots (${lineupNull.length} such rows)`);
-  assert(benchNull.length > 0 && benchNull.every(r => JSON.stringify(r.vals) === DOTS),
-    `a bench row with no sample reads as three middle dots (${benchNull.length} such rows)`);
-  assert(lineupForm.some(r => r.vals.every(v => v !== DOT)), "at least one lineup row shows real form figures");
-  assert(!lineupForm.some(r => noSampleIds.has(r.pid) && r.vals.some(v => /^0(\.0)?%?$/.test(v))),
-    "a player with no games never reads as a zero");
-  assert(lineupForm.every(r => /\bgp\b/.test(r.meta)), "every lineup row states the games-played sample");
-  assert(lineupForm.some(r => noSampleIds.has(r.pid) && r.meta.includes(DOT + " gp")),
-    "a player with no games shows a middle dot for his game count");
+  const addsForm = await formOf("#team-adds-body .add-row");
+  const allForm = lineupForm.concat(benchForm, addsForm);
+  assert(lineupForm.length > 0 && benchForm.length > 0 && addsForm.length > 0,
+    `every My team list paints rows (${lineupForm.length} lineup, ${benchForm.length} bench, ${addsForm.length} adds)`);
+  assert(allForm.every(r => r.hasStrip), `every lineup, bench and adds row carries a form strip (${allForm.length} rows)`);
+  assert(allForm.every(r => r.weeks.length === Math.max(1, logLen(r.pid))),
+    "every row shows one week column per game in his log, or one placeholder when the log is empty");
+  assert(allForm.some(r => logLen(r.pid) === 0) && allForm.filter(r => logLen(r.pid) === 0)
+    .every(r => r.weeks[0] === "W" + DOT && r.pts[0] === DOT && r.snaps[0] === DOT),
+    "a player with an empty log still gets the frame: one W-dot column of dots");
+  const WANT_SUM = JSON.stringify(["AVG", "L3"]);
+  assert(allForm.every(r => JSON.stringify(r.sum) === WANT_SUM),
+    "every strip ends with the AVG and L3 columns");
+  assert(allForm.every(r => JSON.stringify(r.labels) === JSON.stringify(["", "pts", "snap"])),
+    "every strip labels its two rows pts and snap");
+  assert(allForm.every(r => r.pts.length === r.weeks.length + 2),
+    "the pts row carries a cell per week plus AVG and L3");
+  assert(allForm.every(r => r.snaps.length === r.weeks.length + 1),
+    "the snap row carries a cell per week plus the season figure, and no L3 cell");
+  const widths = new Set(allForm.map(r => r.weeks.length + r.pads));
+  assert(widths.size === 1, `every strip on the page is the same number of columns wide, so they line up (${[...widths]})`);
 
   // Snap share published as nothing at all, rather than as a zero.
-  const noSnapIds = new Set(model.rows.filter(r => r.snap === null && r.avg !== null).map(r => r.id));
-  const noSnapShown = lineupForm.concat(benchForm).filter(r => noSnapIds.has(r.pid));
-  assert(noSnapShown.length > 0 && noSnapShown.every(r => r.vals[2] === DOT && r.vals[0] !== DOT),
-    `a player with points but no snap share shows points and a dot for SNAP (${noSnapShown.length})`);
+  const snapCellsOk = await page.evaluate(() =>
+    [...document.querySelectorAll("#view-team .prow[data-pid], #view-team .add-row")].map(el => ({
+      pid: el.getAttribute("data-pid") || (el.querySelector("[data-pid]") || {getAttribute: () => null}).getAttribute("data-pid"),
+      snaps: [...el.querySelectorAll(".fstrip tr:nth-child(3) .fs-v")].map(c => c.textContent.trim())
+    })));
+  let snapMismatch = 0, snapPct = 0, snapDot = 0;
+  for(const row of snapCellsOk){
+    const r = byId.get(row.pid);
+    if(!r) continue;
+    const want = ((r.log && r.log.length ? r.log : [null]).map(g => g && typeof g.snap === "number" ? "%" : DOT))
+      .concat([typeof r.snap === "number" ? "%" : DOT]);
+    row.snaps.forEach((cell, i) => {
+      const got = cell === DOT ? DOT : (cell.endsWith("%") ? "%" : "?");
+      if(got !== want[i]) snapMismatch++;
+      if(got === "%") snapPct++; else if(got === DOT) snapDot++;
+    });
+  }
+  assert(snapMismatch === 0 && snapPct > 0 && snapDot > 0,
+    `snap cells read as a percentage where the MODEL has a number and a dot where it has null ` +
+    `(${snapPct} percentages, ${snapDot} dots, ${snapMismatch} wrong)`);
+
+  const noSampleIds = new Set(model.rows.filter(r => r.avg === null && r.l3 === null && r.snap === null).map(r => r.id));
+  const lineupNull = lineupForm.filter(r => noSampleIds.has(r.pid));
+  const benchNull = benchForm.filter(r => noSampleIds.has(r.pid));
+  const allDots = r => r.pts.every(v => v === DOT) && r.snaps.every(v => v === DOT);
+  assert(lineupNull.length > 0 && lineupNull.every(allDots),
+    `a lineup row with no sample reads as dots the whole way across (${lineupNull.length} such rows)`);
+  assert(benchNull.length > 0 && benchNull.every(allDots),
+    `a bench row with no sample reads as dots the whole way across (${benchNull.length} such rows)`);
+  assert(lineupForm.some(r => r.pts.every(v => v !== DOT) && r.snaps.every(v => v !== DOT)),
+    "at least one lineup row shows real form figures");
+  assert(!lineupForm.some(r => noSampleIds.has(r.pid) && r.pts.concat(r.snaps).some(v => /^0(\.0)?%?$/.test(v))),
+    "a player with no games never reads as a zero");
+  assert(allForm.every(r => /^\d+ gp$/.test(r.gp)), "every row states the games-played sample at the strip's edge");
+  assert(lineupNull.every(r => r.gp === "0 gp" && r.gpThin),
+    "a player with no games reads 0 gp, in the attention colour");
+  assert(allForm.some(r => !r.gpThin) && allForm.some(r => r.gpThin),
+    "a thin sample is coloured and a full one is not");
+
+  /* ---- the usage line under the strip --------------------------------- */
+  const rbRow = allForm.find(r => (byId.get(r.pid) || {}).p === "RB" && r.use.length);
+  const dbRow = allForm.find(r => (byId.get(r.pid) || {}).p === "DB" && r.use.length);
+  assert(rbRow && JSON.stringify(rbRow.use) === JSON.stringify(["car", "ru yd", "tgt", "re yd", "td"]),
+    "an RB's usage line reads car, ru yd, tgt, re yd, td (" + (rbRow ? rbRow.use.join(" ") : "none") + ")");
+  assert(dbRow && JSON.stringify(dbRow.use) === JSON.stringify(["tkl", "pd", "int", "ff"]),
+    "a DB's usage line reads tkl, pd, int, ff (" + (dbRow ? dbRow.use.join(" ") : "none") + ")");
+  assert(rbRow && rbRow.tail === "/g", "the season usage line is marked per game");
+  assert(rbRow && JSON.stringify(rbRow.proj) === JSON.stringify(rbRow.use),
+    "the projected usage line reads the same keys in the same order");
+  const nilUse = allForm.filter(r => r.useVals.includes(DOT));
+  assert(nilUse.length > 0, `a usage key the stat line does not carry reads as a dot (${nilUse.length} rows)`);
+  // usage null but usageProj present: the proj line alone.
+  const projOnlyIds = new Set(model.rows.filter(r => r.usage === null && r.usageProj).map(r => r.id));
+  const projOnly = allForm.filter(r => projOnlyIds.has(r.pid));
+  assert(projOnly.length > 0 && projOnly.every(r => r.use.length === 0 && r.proj.length > 0),
+    `a player with no season sample shows the projected usage line alone (${projOnly.length} rows)`);
+  // both null: no usage block at all rather than a row of empty furniture.
+  const bothNullIds = new Set(model.rows.filter(r => r.usage === null && r.usageProj === null).map(r => r.id));
+  const bothNull = allForm.filter(r => bothNullIds.has(r.pid));
+  assert(bothNull.length > 0 && bothNull.every(r => r.urows === 0 && r.hasStrip),
+    `a player with neither usage reading keeps the strip and drops the usage line (${bothNull.length} rows)`);
+
+  /* ---- a five-week log still fits at this width ----------------------- */
+  const fiveWeekFit = await page.evaluate(() => {
+    const row = document.querySelector("#team-lineup-rows .prow[data-pid]");
+    const strip = row.querySelector(".fstrip");
+    const cells = [...strip.querySelectorAll("tr:nth-child(2) td")];
+    const cellW = cells[1].getBoundingClientRect().width;      // one week column
+    const have = strip.querySelectorAll("tr:first-child .fs-w, tr:first-child .fs-pad").length;
+    const wrap = row.querySelector(".fwrap").getBoundingClientRect().width;
+    return {cellW, need: wrap + Math.max(0, 5 - have) * cellW, room: row.getBoundingClientRect().width};
+  });
+  assert(fiveWeekFit.cellW >= 34 && fiveWeekFit.cellW <= 46,
+    `a game-log cell is about 38px wide (${Math.round(fiveWeekFit.cellW)}px)`);
+  assert(fiveWeekFit.need <= fiveWeekFit.room,
+    `a five-week strip still fits inside the row at this width ` +
+    `(${Math.round(fiveWeekFit.need)}px of ${Math.round(fiveWeekFit.room)}px)`);
+
+  /* ---- start / sit carries both players' form ------------------------- */
+  const swapBlocks = await page.evaluate(() => [...document.querySelectorAll("#team-startsit-body .swap")].map(el => ({
+    head: (el.querySelector(".swap-row") || {textContent: ""}).textContent.trim(),
+    tags: [...el.querySelectorAll(".sform .sf-tag")].map(t => t.textContent.trim()),
+    names: [...el.querySelectorAll(".sform .sf-n")].map(t => t.textContent.trim()),
+    weeks: [...el.querySelectorAll(".sform tr")].map(tr => tr.querySelectorAll(".sf-w").length),
+    cols: [...el.querySelectorAll(".sform tr")].map(tr => tr.querySelectorAll(".sf-w, .sf-pad").length),
+    sums: [...el.querySelectorAll(".sform tr")].map(tr =>
+      [...tr.querySelectorAll(".sf-k")].map(k => k.textContent.trim()).join(" "))
+  })));
+  assert(swapBlocks.length === model.me.swaps.length,
+    `start / sit paints one block per swap (${swapBlocks.length} of ${model.me.swaps.length})`);
+  model.me.swaps.forEach((sw, i) => {
+    const b = swapBlocks[i];
+    const want = [].concat(sw.in ? ["IN"] : [], sw.out ? ["OUT"] : []);
+    assert(JSON.stringify(b.tags) === JSON.stringify(want),
+      `swap ${i + 1} carries a form line for ${want.join(" and ")} (${b.tags.join(",") || "none"})`);
+    const wantNames = [].concat(sw.in ? [sw.in.n] : [], sw.out ? [sw.out.n] : []);
+    assert(JSON.stringify(b.names) === JSON.stringify(wantNames),
+      `swap ${i + 1} names ${wantNames.join(" and ")} on its form lines`);
+    assert(b.sums.every(s => s === "avg l3 snap"),
+      `swap ${i + 1} lines end with avg, l3 and snap (${b.sums.join("|")})`);
+    assert(b.cols.length > 0 && b.cols.every(w => w === b.cols[0]) && b.cols[0] > 0,
+      `swap ${i + 1} lines up the same week columns on both lines (${b.cols.join(",")} columns, ${b.weeks.join(",")} played)`);
+  });
+  assert(swapBlocks.some(b => b.tags.length === 2), "at least one swap compares an IN against an OUT");
+  assert(swapBlocks.some(b => b.tags.length === 1), "a swap with nobody on the other side shows one line");
 
   /* ========================================================= Matchup === */
   await page.click("#tab-matchup");
@@ -294,6 +453,29 @@ async function runViewport(width, height, shots){
     [...document.querySelectorAll("#matchup-rows .mrow")].filter(r =>
       r.querySelector(".mside.mine .mname-line") && r.querySelector(".mside.theirs .mname-line")).length);
   assert(bothNamedRows > 10, `most matchup rows show a named player on both sides (${bothNamedRows} of 19)`);
+
+  /* ---- the compact form variant, on both sides of every row ----------- */
+  const mforms = await page.evaluate(() => [...document.querySelectorAll("#matchup-rows .mside[data-pid]")].map(el => ({
+    side: el.classList.contains("mine") ? "mine" : "theirs",
+    pid: el.getAttribute("data-pid"),
+    form: (el.querySelector(".mform") || {textContent: ""}).textContent.trim(),
+    parts: [...el.querySelectorAll(".mform .mfv")].map(f => f.textContent.trim())
+  })));
+  assert(mforms.length > 20, `both sides of the matchup are painted (${mforms.length} named sides)`);
+  assert(mforms.every(m => m.form.length > 0), "every named matchup side carries the compact form line");
+  assert(mforms.some(m => m.side === "mine") && mforms.some(m => m.side === "theirs"),
+    "the compact line is on my side and theirs");
+  let mformBad = 0;
+  for(const m of mforms){
+    const r = byId.get(m.pid);
+    if(!r) continue;
+    const scores = (r.log || []).slice(-3);
+    const wantLen = (scores.length ? scores.length : 1) + 1;   // scores (or one dot) plus the last snap
+    const snapCell = m.parts[m.parts.length - 1];
+    const snapOk = typeof r.snapL === "number" ? /%$/.test(snapCell) : snapCell === DOT;
+    if(m.parts.length !== wantLen || !snapOk) mformBad++;
+  }
+  assert(mformBad === 0, `every compact line is his last scores then his last snap share (${mformBad} wrong)`);
 
   const optimalTotals = totalsText;
   await page.click('#matchup-mode button[data-mode="set"]');
@@ -644,7 +826,32 @@ async function runViewport(width, height, shots){
   await page.close();
 }
 
+/* --------------------------------------------------- widths in between
+   The form strip and the swap comparison are the widest fixed things on
+   the page, and the two card columns are narrowest somewhere in the
+   middle of the range rather than at either end, so "no horizontal page
+   scroll" is swept across the whole range and not just checked at the two
+   screenshot widths. */
+async function sweepWidths(){
+  console.log("\n=== width sweep ===");
+  const page = await browser.newPage({viewport: {width: 1280, height: 900}});
+  await page.route("**sleepercdn.com/**", route => route.abort());
+  await page.goto("file://" + outFile, {waitUntil: "load"});
+  const bad = [];
+  for(const w of [360, 390, 430, 540, 700, 768, 900, 1000, 1024, 1099, 1100, 1180, 1280, 1536, 1920]){
+    await page.setViewportSize({width: w, height: 900});
+    for(const t of TABS){
+      await page.click("#tab-" + t);
+      const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      if(over > 0) bad.push(`${w}px ${t} +${over}`);
+    }
+  }
+  assert(bad.length === 0, "no horizontal page scroll at any width from 360 to 1920 (" + bad.join(", ") + ")");
+  await page.close();
+}
+
 try{
+  await sweepWidths();
   await runViewport(390, 844, {
     team: "ui_390_team.png", matchup: "ui_390_matchup.png",
     players: "ui_390_players.png", league: "ui_390_league.png"

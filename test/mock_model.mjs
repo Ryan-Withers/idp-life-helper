@@ -206,6 +206,67 @@ function attachForm(rows){
   return rows;
 }
 
+/* ---------------------------------------------------------------- usage
+   Phase 3's new ROW fields, mirroring engine.js's usageFor(): the role
+   underneath the points, per game for the season and once more off this
+   week's projected line. Keys and labels are the contract's table exactly,
+   in display order, and every key keeps its place with v: null when the
+   stat line does not carry it, so the columns line up across players.
+
+   Attached last, after the hand-authored roster surgery below, so what is
+   painted follows from the lines the fixture actually ships. Nothing above
+   this block is touched: these are additive fields only. */
+const REC_USAGE = [{k:"rec_tgt", label:"tgt"}, {k:"rec", label:"rec"},
+                   {k:"rec_yd", label:"yd"}, {k:"rec_td", label:"td"}];
+const USAGE_KEYS = {
+  QB: [{k:"pass_att", label:"att"}, {k:"pass_yd", label:"pa yd"}, {k:"pass_td", label:"pa td"},
+       {k:"pass_int", label:"int"}, {k:"rush_yd", label:"ru yd"}],
+  RB: [{k:"rush_att", label:"car"}, {k:"rush_yd", label:"ru yd"}, {k:"rec_tgt", label:"tgt"},
+       {k:"rec_yd", label:"re yd"}, {k:"td", label:"td"}],
+  WR: REC_USAGE,
+  TE: REC_USAGE,
+  DL: [{k:"idp_tkl", label:"tkl"}, {k:"idp_sack", label:"sk"}, {k:"idp_tkl_loss", label:"tfl"},
+       {k:"idp_qb_hit", label:"qbh"}],
+  LB: [{k:"idp_tkl", label:"tkl"}, {k:"idp_sack", label:"sk"}, {k:"idp_tkl_loss", label:"tfl"},
+       {k:"idp_pass_def", label:"pd"}],
+  DB: [{k:"idp_tkl", label:"tkl"}, {k:"idp_pass_def", label:"pd"}, {k:"idp_int", label:"int"},
+       {k:"idp_ff", label:"ff"}]
+};
+
+// Two keys are not line fields at all: idp_tkl falls back to solo + assist
+// when the combined total is absent, and the RB td entry is rush + rec.
+// A key that is genuinely not there reads null, never a manufactured zero.
+function readUsageKey(line, k){
+  if(k === "idp_tkl"){
+    if(line.idp_tkl != null) return line.idp_tkl;
+    const solo = line.idp_tkl_solo, ast = line.idp_tkl_ast;
+    return (solo == null && ast == null) ? null : (solo || 0) + (ast || 0);
+  }
+  if(k === "td"){
+    const ru = line.rush_td, re = line.rec_td;
+    return (ru == null && re == null) ? null : (ru || 0) + (re || 0);
+  }
+  const v = line[k];
+  return v == null ? null : v;
+}
+
+function usageLine(keys, line, gp){
+  return keys.map(({k, label}) => {
+    const raw = readUsageKey(line, k);
+    return {k, label, v: raw == null ? null : +(raw / gp).toFixed(1)};
+  });
+}
+
+function attachUsage(rows){
+  for(const r of rows){
+    const keys = USAGE_KEYS[r.p];
+    if(!keys){ r.usage = null; r.usageProj = null; continue; }
+    r.usage = (r.st && r.gpNow >= 1) ? usageLine(keys, r.st, r.gpNow) : null;
+    r.usageProj = r.line ? usageLine(keys, r.line, 1) : null;
+  }
+  return rows;
+}
+
 function buildPool(rng){
   const rows = [];
   let seq = 100000;
@@ -510,6 +571,15 @@ export function mockModel(){
   // identity as what sits in the lineup.
   fa.QB = [ADD_QB, ...fa.QB.filter(r => r.id !== ADD_QB.id)].slice(0, 6);
   fa.DB = [ADD_DB, ...fa.DB.filter(r => r.id !== ADD_DB.id)].slice(0, 6);
+
+  // ---- usage, last: every line the fixture ships is final by here -------
+  attachUsage(rows);
+  // The one row with neither reading. His season line is a receiver's but
+  // his week line was emptied out for the bye, and the point of the case
+  // is the UI path where the usage block has nothing at all to draw, so
+  // both readings are cleared outright. New fields only: nothing the
+  // earlier phases produced moves.
+  BYE_WR.usage = null; BYE_WR.usageProj = null;
 
   return {
     week: 5, season: 2026, name: "SF IDP LIFE $55 Dynasty", league: "SF IDP LIFE $55 Dynasty",

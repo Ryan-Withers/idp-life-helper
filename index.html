@@ -6,148 +6,161 @@
 <meta name="color-scheme" content="light">
 <title>IDP LIFE roster</title>
 <style>
-/* Roster page presentation layer: a light, monospace, hairline instrument.
-   Graph-paper ground, white cards with one hairline border, dense rows,
-   plain text positions. Colour carries meaning only: green for a gain,
-   red for a sit or a loss, blue for a change or the active control.
-   See CONTRACT.md (Phase 2) for the shapes this is rendered from. */
+/* Roster page presentation layer: GitHub's light theme, applied to a dense
+   fantasy instrument. Plain ground, white cards with one hairline border,
+   6px radii, no shadows and no gradients. Text is GitHub's system sans;
+   only the figures that have to line up into columns are monospace, with
+   tabular numerals. Colour carries meaning only: green for a gain, red for
+   a sit or a loss, blue for a change or the active control, yellow for a
+   sample too thin to trust.
+   See CONTRACT.md (Phase 3) for the shapes this is rendered from. */
 
 :root{
   color-scheme:light;
 
-  --paper:#fbfbf9;
-  --card:#fff;
-  --line:#e6e5e1;       /* card and table hairlines */
-  --line2:#f0efeb;      /* row hairlines, one step fainter */
-  --btn-line:#d9d7d1;
-
-  --ink:#17171a;
-  --dim:#6f6d66;
-  --faint:#9c9a92;
-  --label:#78766e;      /* section headings, column headings */
-  --pos:#8b93a3;        /* the position column: present, never loud */
-
-  --up:#127a46;         /* a gain, a start */
-  --dn:#b3402f;         /* a sit, a loss */
-  --blue:#2a5db0;       /* a change, the active control */
-  --tint-in:#eef3fd;    /* a row coming in */
-  --tint-out:#fdf1ef;   /* a row going out */
-  --hover:#f7f7f4;
-
+  /* GitHub's own two stacks. Sans for everything a person reads as words,
+     mono only where a column of numbers has to line up down the page. */
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+
+  --paper:#f6f8fa;      /* the ground, plain: no graph paper */
+  --card:#ffffff;
+  --line:#d0d7de;       /* card, control and table borders */
+  --line2:#d8dee4;      /* row hairlines, one step fainter */
+
+  --ink:#1f2328;
+  --dim:#656d76;
+  --faint:#8c959f;
+  --label:#656d76;      /* section headings, column headings */
+  --pos:#8c959f;        /* the position column: present, never loud */
+
+  --up:#1a7f37;         /* a gain, a start */
+  --dn:#cf222e;         /* a sit, a loss */
+  --blue:#0969da;       /* a change, the active control */
+  --attn:#9a6700;       /* a sample too thin to lean on */
+  --tint-in:#ddf4ff;    /* a row coming in */
+  --tint-out:#ffebe9;   /* a row going out */
+  --hover:#f6f8fa;
+  --chip:#eaeef2;
+  --chip-ink:#57606a;
+
+  /* The form strip. One cell width for every game-log column on the page,
+     so the strips line up down the roster whoever is in the row. */
+  --fs-cell:38px;
+  --fs-lab:27px;
+  --sf-name:96px;
+  --sf-week:46px;
+  --sf-sum:56px;
 }
 
 *{box-sizing:border-box}
 html{background:var(--paper)}
-/* The ground: near-white warm paper under a 24px graph-paper grid, drawn
-   with two linear gradients rather than an image. */
 body{
-  margin:0;color:var(--ink);
-  font:12px/1.45 var(--mono);
-  font-variant-numeric:tabular-nums;
+  margin:0;color:var(--ink);background:var(--paper);
+  font:13px/1.45 var(--sans);
   -webkit-font-smoothing:antialiased;
-  background:
-    linear-gradient(to bottom,rgba(0,0,0,.035) 1px,transparent 1px) 0 0/100% 24px,
-    linear-gradient(to right,rgba(0,0,0,.035) 1px,transparent 1px) 0 0/24px 100%,
-    var(--paper);
 }
 h1,h2,h3{margin:0;font:inherit}
-button,input,select{font:inherit;color:inherit;font-variant-numeric:tabular-nums}
+button,input,select{font-family:inherit;color:inherit}
 img{max-width:100%}
 
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
-.wrap{max-width:1180px;margin:0 auto;padding:14px 14px 44px}
-.boot{padding:70px 16px;text-align:center;color:var(--dim);font-size:12px;letter-spacing:.04em}
+.wrap{max-width:1180px;margin:0 auto;padding:16px 16px 48px}
+.boot{padding:70px 16px;text-align:center;color:var(--dim);font-size:13px}
 .boot.bad{color:var(--dn)}
 #app[hidden],.boot[hidden]{display:none}
 
 /* ------------------------------------------------------------------ cards */
-.card{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:14px;min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;min-width:0}
 .grid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
 
-.sec-h{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
-  font-weight:700;padding-bottom:6px;border-bottom:1px solid var(--line);margin-bottom:6px}
-.sec-note,.msg{font-size:11px;color:var(--dim);padding:6px 0;line-height:1.5}
+.sec-h{font-size:12px;color:var(--ink);font-weight:600;
+  padding-bottom:8px;border-bottom:1px solid var(--line2);margin-bottom:6px}
+.sec-note,.msg{font-size:12px;color:var(--dim);padding:6px 0;line-height:1.5}
 
 /* ------------------------------------------------------------------ header */
 .hdr{margin-bottom:14px}
 .titlerow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
   flex-wrap:wrap;margin-bottom:10px}
 .title-left{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
-.ptitle{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--ink)}
-.ptitle-week{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)}
-.ptitle-desc{font-size:10.5px;color:var(--dim)}
+.ptitle{font-size:15px;font-weight:600;color:var(--ink)}
+.ptitle-week{font-size:12px;color:var(--blue);font-weight:600}
+.ptitle-desc{font-size:12px;color:var(--dim)}
 .title-right{display:flex;align-items:center;gap:10px;flex:none}
-.feed{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);white-space:nowrap}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
-.dot.warn{background:#a8791b}
+.feed{font-size:11px;color:var(--dim);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--up);display:inline-block;margin-right:5px;vertical-align:1px}
+.dot.warn{background:var(--attn)}
 .dot.off{background:var(--faint)}
 
 .hdr-matchup{display:flex;align-items:flex-end;gap:12px}
 .hdr-team{flex:1 1 0;min-width:0}
 .hdr-team.opp{text-align:right}
-.t-name{font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hdr-team.mine .t-name{color:var(--ink);font-weight:700}
-.t-total{font-size:22px;font-weight:700;line-height:1.15;letter-spacing:-.01em}
-.t-set{font-size:9.5px;color:var(--faint);margin-top:1px}
-.hdr-vs{flex:none;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.09em;padding-bottom:4px}
-.hdr-fetched{font-size:9.5px;color:var(--faint);margin-top:8px}
+.t-name{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-team.mine .t-name{color:var(--ink);font-weight:600}
+.t-total{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:24px;font-weight:600;line-height:1.15}
+.t-set{font-size:11px;color:var(--faint);margin-top:2px}
+.hdr-vs{flex:none;font-size:11px;color:var(--faint);padding-bottom:5px}
+.hdr-fetched{font-size:11px;color:var(--faint);margin-top:10px}
 
 /* Four small bordered boxes: the state of the roster in one glance. */
 .strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
-.sbox{border:1px solid var(--line);border-radius:4px;padding:6px 8px;min-width:0}
-.sk{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sv{font-size:16px;font-weight:700;line-height:1.25;margin-top:1px}
+.sbox{border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+.sk{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sv{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:17px;font-weight:600;line-height:1.3;margin-top:1px}
 .sv.up{color:var(--up)} .sv.dn{color:var(--dn)} .sv.blue{color:var(--blue)}
-.sfoot{display:flex;justify-content:space-between;gap:6px;font-size:9px;color:var(--dim);
+.sfoot{display:flex;justify-content:space-between;gap:6px;font-size:11px;color:var(--dim);
   white-space:nowrap;overflow:hidden}
 .sfoot .sn{color:var(--faint)}
 
-/* ------------------------------------------------------------------ controls */
-.btn,.posf button,.seg button{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
-  border-radius:3px;padding:3px 8px;font-size:11px;letter-spacing:.03em;cursor:pointer;line-height:1.5}
+/* ------------------------------------------------------------------ controls
+   GitHub's buttons: white, one hairline border, 6px radius, a small
+   semibold label. No pills, no fills except where a control is on. */
+.btn,.posf button,.seg button{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.5}
 .btn:hover,.posf button:hover,.seg button:hover{background:var(--hover)}
 .btn:focus-visible,.posf button:focus-visible,.seg button:focus-visible,
-input:focus-visible,select:focus-visible,th:focus-visible{outline:1px solid var(--blue);outline-offset:1px}
-.posf button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+input:focus-visible,select:focus-visible,th:focus-visible{outline:2px solid var(--blue);outline-offset:-1px}
+.posf button{color:var(--dim)}
+.posf button[aria-pressed=true]{background:var(--blue);border-color:var(--blue);color:#fff}
 
 /* Segmented control: one bordered strip, hairline dividers, the active cell
-   filled. Used for the tab bar, the matchup mode and the stat source. */
-.seg{display:inline-flex;border:1px solid var(--btn-line);border-radius:3px;overflow:hidden;flex:none}
-.seg button{border:0;border-left:1px solid var(--btn-line);border-radius:0;padding:3px 9px}
+   filled the way GitHub fills a selected tab. */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex:none}
+.seg button{border:0;border-left:1px solid var(--line);border-radius:0;padding:4px 10px;color:var(--dim)}
 .seg button:first-child{border-left:0}
-.seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+.seg button[aria-pressed=true]{background:var(--hover);color:var(--ink)}
 
-select{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
-  border-radius:3px;padding:3px 6px;font-size:11px;max-width:100%}
-input[type=search]{background:var(--card);border:1px solid var(--btn-line);color:var(--ink);
-  border-radius:3px;padding:3px 7px;font-size:11px;min-width:120px;flex:1 1 140px;max-width:260px}
+select{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:6px;padding:4px 8px;font-size:12px;max-width:100%}
+input[type=search]{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:6px;padding:4px 9px;font-size:12px;min-width:120px;flex:1 1 160px;max-width:280px}
 input[type=search]::placeholder{color:var(--faint)}
-.chk{font-size:10.5px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.chk{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
 .chk input{accent-color:var(--blue);margin:0}
 .ctl{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.ctl-k{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.ctl-k{font-size:11px;color:var(--faint)}
 
 /* ------------------------------------------------------------------ tabs */
 .tabbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);
-  background:var(--card);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:0 0 14px}
+  background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 14px}
 .tabbtn{background:var(--card);border:0;border-left:1px solid var(--line);color:var(--dim);
-  padding:7px 4px;font-size:11px;letter-spacing:.05em;cursor:pointer;
+  padding:8px 4px;font-size:12px;font-weight:400;cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tabbtn:first-child{border-left:0}
 .tabbtn:hover{background:var(--hover);color:var(--ink)}
-.tabbtn[aria-selected=true]{background:var(--ink);color:#fff}
-.tabbtn:focus-visible{outline:1px solid var(--blue);outline-offset:-2px}
+.tabbtn[aria-selected=true]{background:var(--hover);color:var(--ink);font-weight:600}
+.tabbtn:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 
 /* ------------------------------------------------------------------ filter bar */
 .filterbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px}
 #players-filterbar,#league-controls{margin-bottom:8px}
 .posf{display:flex;flex-wrap:wrap;gap:4px}
-.posf button{padding:3px 6px;font-size:10px;letter-spacing:.04em;min-width:26px}
-.fb-count{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+.posf button{padding:3px 7px;font-size:11px;min-width:28px}
+.fb-count{font-size:11px;color:var(--faint)}
 .filterbar .fb-count{margin-left:auto;flex:0 0 auto}
 .matchup-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 #matchup-opp{min-width:150px}
@@ -155,127 +168,208 @@ input[type=search]::placeholder{color:var(--faint)}
 .players-extra{display:flex;flex-wrap:wrap;gap:7px 14px;align-items:center;margin:0 0 10px}
 
 /* ------------------------------------------------------------------ player row
-   Shared by the lineup and the bench. One line of name, one of meta, the
-   form block and the projection on the right. About 32px tall. */
-.prow{display:grid;grid-template-columns:26px 18px minmax(0,1fr) auto 44px;
-  align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid var(--line2)}
+   The decision row. Identity on the left, the form strip in the middle, our
+   projection on the right, usage underneath. Everything a start/sit call
+   needs is on the row: nothing to click into. */
+.prow{display:grid;
+  grid-template-columns:24px 18px minmax(0,1fr) auto 48px;
+  grid-template-rows:auto auto;
+  align-items:center;gap:1px 8px;padding:4px 2px;border-bottom:1px solid var(--line2)}
 .prow:last-child{border-bottom:0}
 .prow[data-pid]{cursor:pointer}
 .prow[data-pid]:hover{background:var(--hover)}
 .prow.add{background:var(--tint-in)}
 .prow.dim .pname{font-weight:400;color:var(--dim)}
-.prow.empty{color:var(--faint);grid-template-columns:26px minmax(0,1fr)}
+.prow.empty{color:var(--faint);grid-template-columns:24px minmax(0,1fr);grid-template-rows:auto}
+.prow>.pos{grid-column:1;grid-row:1}
+.prow>.ava{grid-column:2;grid-row:1}
+.prow>.pmain{grid-column:3;grid-row:1}
+.prow>.fwrap{grid-column:4;grid-row:1}
+.prow>.pproj{grid-column:5;grid-row:1}
+.prow>.urow{grid-column:3 / -1;grid-row:2}
+.prow.empty>.empty-txt{grid-column:2;grid-row:1}
 
-.pos{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--pos);
-  white-space:nowrap;overflow:hidden}
-.ava{width:18px;height:18px;border-radius:2px;background:var(--line2);overflow:hidden;display:block}
-.ava img{width:100%;height:100%;object-fit:cover;display:block;filter:grayscale(.3)}
+.pos{font-size:11px;color:var(--pos);white-space:nowrap;overflow:hidden}
+.ava{width:18px;height:18px;border-radius:3px;background:var(--chip);overflow:hidden;display:block}
+.ava img{width:100%;height:100%;object-fit:cover;display:block}
 .ava img.err{display:none}
 
 .pmain{min-width:0}
-.pname{font-size:11.5px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pmeta{font-size:9.5px;line-height:1.25;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pmeta .thin{color:var(--dn)}
-.mid{padding:0 3px;color:var(--faint)}
-.pproj{font-size:14px;font-weight:700;text-align:right}
-.empty-txt{font-size:10px;color:var(--faint);border:1px dashed var(--line);border-radius:3px;
-  padding:1px 6px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.pname{font-size:13px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta{font-size:11px;line-height:1.25;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pproj{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:15px;font-weight:600;text-align:right}
+.empty-txt{font-size:12px;color:var(--dim);border:1px dashed var(--line);border-radius:6px;
+  padding:2px 8px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 
-/* Form at a glance: AVG, L3, SNAP. Tiny label over a small value; L3 takes
-   the only colour, and only when the trend is worth a manager's attention. */
-.form{display:flex;gap:9px;flex:none}
-.f{text-align:right;min-width:34px}
-.fk{display:block;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);line-height:1.25}
-.fv{display:block;font-size:10.5px;line-height:1.3}
-.fv.up{color:var(--up)} .fv.dn{color:var(--dn)}
+/* ---- the form strip -------------------------------------------------
+   One column per fetched week, oldest left, then a divider and the season
+   summary. Points on one line, snap share under it. Cells are one fixed
+   width so the columns line up down the whole roster; a player with no
+   games keeps the frame and fills it with dots. */
+.fwrap{display:flex;align-items:center;gap:7px;justify-self:end;flex:none}
+.fstrip{border-collapse:collapse;border-spacing:0;width:auto;flex:none}
+.fstrip td{padding:0 4px 0 0;text-align:right;white-space:nowrap;border:0;background:none;
+  width:var(--fs-cell);line-height:1.2}
+.fstrip .fs-k{width:var(--fs-lab);min-width:var(--fs-lab);text-align:left;padding:0 5px 0 0;
+  font-size:9px;color:var(--faint)}
+.fstrip .fs-w,.fstrip .fs-h{font-size:9px;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--faint);line-height:1.2}
+.fstrip .fs-v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink)}
+.fstrip .fs-snap{color:var(--dim)}
+.fstrip .fs-div{border-left:1px solid var(--line);padding-left:6px}
+.fstrip .fs-none{width:var(--fs-cell)}
+.fstrip .best{font-weight:700}
+.fstrip .nil{color:var(--faint)}
+.fstrip .up{color:var(--up)} .fstrip .dn{color:var(--dn)}
+.fs-gp{font-size:9px;color:var(--faint);white-space:nowrap;flex:none;min-width:28px;text-align:right}
+.fs-gp.thin{color:var(--attn)}
+
+/* ---- the usage line -------------------------------------------------
+   The role underneath the points: carries, targets, tackles. Labels are
+   sans, figures mono, and the projected reading of the same keys sits
+   under it a shade fainter so role and forecast can be compared. */
+.urow{min-width:0}
+.uline{font-size:10.5px;line-height:1.3;color:var(--dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uline.uproj{color:var(--faint)}
+.uv{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.uline.uproj .uv{color:var(--dim)}
+.uv.nil{color:var(--faint)}
+.uk{margin-left:3px}
+/* The separator is drawn a shade lighter than a missing value, so a run of
+   "· int · · ru yd" still parses as "no interceptions on file". */
+.usep{padding:0 4px;color:var(--line)}
+.ug{margin-left:5px;color:var(--faint)}
+.upk{margin-right:6px}
 
 /* ------------------------------------------------------------------ chips */
-.chip{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.05em;
-  padding:2px 5px;border-radius:2px;margin-left:5px;vertical-align:1px;
-  background:var(--line2);color:var(--dim);border:1px solid var(--line);line-height:1}
-.chip.c-in,.chip.c-add{background:var(--blue);border-color:var(--blue);color:#fff}
-.chip.c-sit{background:var(--dn);border-color:var(--dn);color:#fff}
-.chip.c-start{background:var(--up);border-color:var(--up);color:#fff}
+.chip{display:inline-block;font-size:10px;font-weight:600;
+  padding:1px 6px;border-radius:6px;margin-left:5px;vertical-align:1px;
+  background:var(--chip);color:var(--chip-ink);border:1px solid transparent;line-height:1.5}
+.chip.c-in,.chip.c-add{background:var(--tint-in);border-color:#b6e3ff;color:var(--blue)}
+.chip.c-sit{background:var(--tint-out);border-color:#ffcecb;color:var(--dn)}
+.chip.c-start{background:#dafbe1;border-color:#aceebb;color:var(--up)}
 .chip:first-child{margin-left:0}
 
-/* ------------------------------------------------------------------ start/sit */
-.ss-total{font-size:11px;color:var(--dim);padding:4px 0 7px;border-bottom:1px solid var(--line2)}
-.ss-total .n{font-size:13px;font-weight:700;color:var(--up)}
-.swap-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;
-  padding:5px 3px;border-bottom:1px solid var(--line2);font-size:11px}
-.swap-row:last-child{border-bottom:0}
-.swap-row.is-sit{background:var(--tint-out)}
-.swap-row.is-in{background:var(--tint-in)}
+/* ------------------------------------------------------------------ start/sit
+   The swap headline, then the two players' form one under the other: the
+   gap between the lines is the decision. */
+.ss-total{font-size:12px;color:var(--dim);padding:2px 0 8px;border-bottom:1px solid var(--line2)}
+.ss-total .n{font-size:14px;font-weight:600;color:var(--up)}
+.swap{padding:7px 6px;border-bottom:1px solid var(--line2);border-radius:6px}
+.swap:last-child{border-bottom:0}
+.swap.is-sit{background:var(--tint-out)}
+.swap.is-in{background:var(--tint-in)}
+.swap-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;font-size:12px}
 .swap-txt{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .swap-in,.swap-out{cursor:pointer}
-.swap-in{font-weight:700}
+.swap-in{font-weight:600}
 .swap-in:hover,.swap-out:hover,.add-name:hover,.drop:hover{text-decoration:underline}
 .swap-out{color:var(--dim)}
 .swap-op{color:var(--faint);padding:0 2px}
-.swap-gain{font-weight:700;color:var(--up);text-align:right;white-space:nowrap}
-.swap-row.is-sit .swap-gain{color:var(--dn)}
+.swap-gain{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-weight:600;color:var(--up);text-align:right;white-space:nowrap}
+.swap.is-sit .swap-gain{color:var(--dn)}
+
+.sform{border-collapse:collapse;border-spacing:0;width:100%;margin-top:5px}
+.sform td{padding:1px 0;border:0;background:none;text-align:right;white-space:nowrap;line-height:1.35}
+.sform tr[data-pid]{cursor:pointer}
+.sform .sf-tag{width:30px;min-width:30px;text-align:left;font-size:9px;font-weight:600;color:var(--faint)}
+.sform .sf-in .sf-tag{color:var(--blue)}
+.sform .sf-out .sf-tag{color:var(--dn)}
+/* The name cell gives ground before the figures do: the block inside it
+   clips, so the two lines can compress into a narrow card without the
+   table ever forcing the page to scroll sideways. */
+.sform .sf-n{width:var(--sf-name);max-width:var(--sf-name);text-align:left;font-size:11px;
+  font-weight:600;padding-right:6px}
+.sform .sf-nm{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sform .sf-out .sf-n{font-weight:400;color:var(--dim)}
+.sform .sf-w{width:var(--sf-week)}
+.sform .sf-s{width:var(--sf-sum)}
+.sform .sf-div{border-left:1px solid var(--line);padding-left:6px}
+.sform .sf-wk,.sform .sf-k{font-size:9px;color:var(--faint);margin-right:3px;text-transform:uppercase}
+.sform .sf-k{text-transform:none}
+.sform .sf-v,.sform .sf-wv{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px}
+.sform .up{color:var(--up)} .sform .dn{color:var(--dn)}
+.sform .nil{color:var(--faint)}
 
 /* ------------------------------------------------------------------ flagged */
-.flag-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;
-  padding:4px 2px;border-bottom:1px solid var(--line2);font-size:11px;cursor:pointer}
+.flag-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:5px 2px;border-bottom:1px solid var(--line2);font-size:12px;cursor:pointer}
 .flag-row:last-child{border-bottom:0}
 .flag-row:hover{background:var(--hover)}
-.flag-name{font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flag-why{font-size:9.5px;line-height:1.25;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tag-status{font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 5px;border-radius:2px;
-  color:var(--dim);background:var(--line2);border:1px solid var(--line);white-space:nowrap;line-height:1}
-.tag-status.starting{color:#fff;background:var(--up);border-color:var(--up)}
+.flag-name{font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flag-why{font-size:11px;line-height:1.3;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-status{font-size:10px;font-weight:600;padding:1px 6px;border-radius:6px;
+  color:var(--chip-ink);background:var(--chip);white-space:nowrap;line-height:1.5}
+.tag-status.starting{color:var(--up);background:#dafbe1}
 
 /* ------------------------------------------------------------------ adds */
-.add-group{margin-bottom:10px}
+.add-group{margin-bottom:12px}
 .add-group:last-child{margin-bottom:0}
-.add-group h3{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
-  font-weight:700;margin-bottom:2px}
-.add-row{display:grid;grid-template-columns:26px minmax(0,1fr) 44px 44px;gap:8px;align-items:center;
-  padding:4px 2px;border-bottom:1px solid var(--line2);font-size:11px}
+.add-group h3{font-size:11px;color:var(--dim);font-weight:600;margin-bottom:2px}
+.add-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto 48px 46px;
+  grid-template-rows:auto auto;gap:1px 8px;align-items:center;
+  padding:4px 2px;border-bottom:1px solid var(--line2);font-size:12px}
 .add-row:last-child{border-bottom:0}
-.add-name{font-weight:700;line-height:1.3;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.add-vs{font-size:9.5px;line-height:1.25;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-row>.pos{grid-column:1;grid-row:1}
+.add-row>.pmain{grid-column:2;grid-row:1}
+.add-row>.fwrap{grid-column:3;grid-row:1}
+.add-row>.pproj{grid-column:4;grid-row:1}
+.add-row>.add-diff{grid-column:5;grid-row:1}
+.add-row>.urow{grid-column:2 / -1;grid-row:2}
+.add-name{font-size:13px;font-weight:600;line-height:1.3;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-vs{font-size:11px;line-height:1.3;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .add-vs .drop{cursor:pointer;color:var(--ink)}
-.add-diff{font-weight:700;color:var(--up);text-align:right}
+.add-diff{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-weight:600;color:var(--up);text-align:right}
 .add-diff.neg{color:var(--faint);font-weight:400}
 
 /* ------------------------------------------------------------------ matchup */
 .mtotals{display:flex;align-items:center;gap:8px;padding:2px 0 8px;border-bottom:1px solid var(--line2);margin-bottom:4px}
-.mt-name{font-size:10px;color:var(--dim);flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt-name{font-size:12px;color:var(--dim);flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mtotals .mt-name:last-child{text-align:right}
-.mt-val{font-size:15px;font-weight:700;flex:none}
-.mt-vs{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;flex:none}
+.mt-val{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;flex:none}
+.mt-vs{font-size:11px;color:var(--faint);flex:none}
 
-.mrow{display:grid;grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);gap:6px;align-items:center;
-  padding:4px 0;border-bottom:1px solid var(--line2)}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);gap:6px;align-items:center;
+  padding:5px 0;border-bottom:1px solid var(--line2)}
 .mrow:last-child{border-bottom:0}
-.mbadge{text-align:center;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--pos)}
-.mside{display:flex;align-items:center;gap:7px;min-width:0;padding:2px 3px;border-radius:3px}
+.mbadge{text-align:center;font-size:10px;color:var(--pos)}
+.mside{display:flex;align-items:center;gap:7px;min-width:0;padding:2px 4px;border-radius:6px}
 .mside[data-pid]{cursor:pointer}
 .mside[data-pid]:hover{background:var(--hover)}
 .mside.mine{justify-content:flex-end}
 .mside.theirs{justify-content:flex-start}
 .mside .mtext{min-width:0}
 .mside.mine .mtext{text-align:right}
-.mname-line{font-size:11px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.msub{font-size:9px;line-height:1.25;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mproj{flex:none;font-size:12px;font-weight:700;min-width:34px;text-align:center;color:var(--dim)}
+.mname-line{font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msub{font-size:10px;line-height:1.25;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mform{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10px;line-height:1.3;
+  color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mform .msep{color:var(--faint);padding:0 2px}
+.mproj{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  flex:none;font-size:13px;font-weight:600;min-width:36px;text-align:center;color:var(--dim)}
 .mside.hi .mproj{color:var(--up)}
-.mside.empty-side{color:var(--faint);font-size:9.5px;justify-content:center}
+.mside.empty-side{color:var(--faint);font-size:11px;justify-content:center}
 
 /* ------------------------------------------------------------------ tables
-   One hairline treatment for every table on the page: the players pivot,
-   the league table and the two card tables. */
-.tframe{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:4px;background:var(--card)}
+   One hairline treatment for every real table on the page: the players
+   pivot, the league table and the two card tables. Figures are mono and
+   tabular; the headings that name them stay sans. */
+.tframe{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:6px;background:var(--card)}
 #players-frame{max-height:min(66vh,620px)}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:11px}
-th{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--label);font-weight:700;
-  text-align:right;white-space:nowrap;padding:5px 7px;background:var(--card);
+.dtable,.ptable{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+.dtable th,.ptable th{font-size:11px;color:var(--dim);font-weight:600;
+  text-align:right;white-space:nowrap;padding:6px 8px;background:var(--card);
   border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
-th.l,td.l{text-align:left}
-td{padding:3px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line2);background:var(--card)}
-tbody tr:last-child td{border-bottom:0}
+.dtable th.l,.dtable td.l,.ptable th.l,.ptable td.l{text-align:left}
+.dtable td,.ptable td{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  padding:4px 8px;text-align:right;white-space:nowrap;
+  border-bottom:1px solid var(--line2);background:var(--card)}
+.dtable td.l,.ptable td.c-player{font-family:var(--sans)}
+.dtable tbody tr:last-child td,.ptable tbody tr:last-child td{border-bottom:0}
 th[data-key]{cursor:pointer;user-select:none}
 th[data-key]:hover{color:var(--ink)}
 th[aria-sort=ascending],th[aria-sort=descending]{color:var(--blue)}
@@ -288,67 +382,72 @@ td.up{color:var(--up)} td.dn{color:var(--dn)}
    rather than a ragged edge, and the table keeps its own honest width and
    scrolls inside its frame instead of being squeezed. */
 .ptable{width:auto;min-width:100%}
-.ptable th,.ptable td{min-width:52px}
-.ptable .c-rk{position:sticky;left:0;z-index:2;width:36px;min-width:36px;color:var(--faint);font-size:10px}
-.ptable .c-player{position:sticky;left:36px;z-index:2;text-align:left;
-  border-right:1px solid var(--line);min-width:172px;max-width:172px;overflow:hidden}
+.ptable th,.ptable td{min-width:54px}
+.ptable .c-rk{position:sticky;left:0;z-index:2;width:38px;min-width:38px;color:var(--faint);font-size:11px}
+.ptable .c-player{position:sticky;left:38px;z-index:2;text-align:left;
+  border-right:1px solid var(--line);min-width:180px;max-width:180px;overflow:hidden}
 .ptable thead .c-rk,.ptable thead .c-player{z-index:4}
 .ptable tbody tr{cursor:pointer}
 .ptable tbody tr:hover td{background:var(--hover)}
-.p-name{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.p-sub{font-size:9px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-sub{font-size:10px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .p-own{color:var(--dim)}
 .p-own.you{color:var(--blue)}
-.ptable td.c-proj{font-weight:700;font-size:11.5px}
+.ptable td.c-proj{font-weight:600}
 .ptable td.nil{color:var(--faint)}
 .ptable td.up{color:var(--up)} .ptable td.dn{color:var(--dn)}
-.ptable .grp{border-left:1px solid var(--line)}
+.ptable .grp{border-left:1px solid var(--line2)}
 
 /* ---- league --------------------------------------------------------- */
-#sec-league .tframe{max-width:820px}
+#sec-league .tframe{max-width:840px}
 table.league{table-layout:fixed;min-width:520px}
-table.league col.num{width:58px}
+table.league col.num{width:62px}
 table.league td.l{overflow:hidden;text-overflow:ellipsis}
 table.league tr[data-rid]{cursor:pointer}
 table.league tbody tr:hover td{background:var(--hover)}
 table.league tr.mine td{background:var(--tint-in)}
-table.league tr.mine td:first-child{font-weight:700}
+table.league tr.mine td:first-child{font-weight:600}
 table.msummary{table-layout:fixed}
-table.msummary col.num{width:64px}
+table.msummary col.num{width:66px}
 
 /* ------------------------------------------------------------------ player card */
 #cardwrap[hidden]{display:none}
-#cardbg{position:fixed;inset:0;background:rgba(23,23,26,.34);z-index:80}
+#cardbg{position:fixed;inset:0;background:rgba(31,35,40,.4);z-index:80}
 #card{position:fixed;z-index:81;top:5vh;left:50%;transform:translateX(-50%);
-  width:min(620px,94vw);max-height:90vh;overflow:auto;background:var(--card);
-  border:1px solid var(--line);border-radius:5px;padding:16px 18px}
-#cardclose{position:absolute;top:10px;right:10px;width:22px;height:22px;padding:0;
-  background:var(--card);border:1px solid var(--btn-line);border-radius:3px;color:var(--dim);
-  font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  width:min(640px,94vw);max-height:90vh;overflow:auto;background:var(--card);
+  border:1px solid var(--line);border-radius:6px;padding:16px 18px}
+#cardclose{position:absolute;top:10px;right:10px;width:24px;height:24px;padding:0;
+  background:var(--card);border:1px solid var(--line);border-radius:6px;color:var(--dim);
+  font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 #cardclose:hover{background:var(--hover);color:var(--ink)}
-.card-eyebrow{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
-.card-name{font-size:15px;font-weight:700;margin-top:3px}
-.card-sub{font-size:10px;color:var(--dim);margin-top:2px}
-.card-key{font-size:9.5px;color:var(--dim);margin:10px 0;display:flex;flex-wrap:wrap;gap:2px 14px}
-.sq{display:inline-block;width:7px;height:7px;border-radius:1px;margin-right:5px;vertical-align:1px;
+.card-eyebrow{font-size:11px;color:var(--faint);font-weight:600}
+.card-name{font-size:17px;font-weight:600;margin-top:3px}
+.card-sub{font-size:12px;color:var(--dim);margin-top:2px}
+.card-key{font-size:11px;color:var(--dim);margin:10px 0;display:flex;flex-wrap:wrap;gap:2px 14px}
+.sq{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0;
   border:1px solid var(--line)}
-.bg-sleeper{background:#c9cfd8} .bg-shrunk{background:#b8cfc1}
-.bg-rate{background:#dcd0bb} .bg-prorated{background:#cdc6dd}
-.card-grp{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);
-  font-weight:700;margin-top:14px;padding-bottom:5px;border-bottom:1px solid var(--line)}
-.card-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:10px 0}
-.card-total{font-size:10.5px;line-height:1.6;color:var(--dim);margin-top:12px;padding-top:10px;
-  border-top:1px solid var(--line)}
-.card-total b{color:var(--ink);font-weight:700}
-.card-total code{font-size:10px;background:var(--hover);padding:1px 3px;border-radius:2px}
+.bg-sleeper{background:#d0d7de} .bg-shrunk{background:#aceebb}
+.bg-rate{background:#f8d9a4} .bg-prorated{background:#d4c5f9}
+.card-grp{font-size:12px;color:var(--ink);font-weight:600;
+  margin-top:16px;padding-bottom:6px;border-bottom:1px solid var(--line2)}
+.card-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.card-total{font-size:12px;line-height:1.6;color:var(--dim);margin-top:12px;padding-top:10px;
+  border-top:1px solid var(--line2)}
+.card-total b{color:var(--ink);font-weight:600}
+.card-total code{font-family:var(--mono);font-size:11px;background:var(--hover);
+  padding:1px 4px;border-radius:6px}
 .fl{color:var(--faint)}
 #card table{margin-top:2px}
 #card th{position:static}
+#card .urow{margin-top:8px}
+#card .uline{white-space:normal}
 
 /* ------------------------------------------------------------------ desktop
-   Two columns of cards once there is room for them. */
+   Two columns of cards once there is room. The lineup takes the wider one:
+   it is the column carrying the form strips, and Start / sit sits beside
+   it rather than below the whole roster. */
 @media (min-width:900px){
-  .team-grid{grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);align-items:start}
+  .team-grid{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
   #sec-lineup{grid-column:1;grid-row:1 / span 3}
   #sec-startsit{grid-column:2;grid-row:1}
   #sec-flagged{grid-column:2;grid-row:2}
@@ -358,44 +457,85 @@ table.msummary col.num{width:64px}
   #sec-matchup-rows{grid-column:1;grid-row:1 / span 2}
   #sec-matchup-summary{grid-column:2;grid-row:1}
   #sec-matchup-flagged{grid-column:2;grid-row:2}
-  .f{min-width:38px}
-  .ptable .c-player{min-width:216px;max-width:216px}
+  .ptable .c-player{min-width:220px;max-width:220px}
 }
 
-/* ------------------------------------------------------------------ phone
-   Same design, smaller type. The form block stays on the row rather than
-   wrapping: it is the point of the row. */
+/* ------------------------------------------------------- narrow and phone
+   Same design, same figures, restacked: the strip and the usage line drop
+   under the name and take the full width of the row rather than being
+   squeezed out of it. They are the point of the row, so they never give
+   ground; the name does. Below 1100px there is not enough room beside a
+   19-slot lineup for both, so the strip stacks from there down, not just
+   on a phone. */
+@media (max-width:1099px){
+  .prow{grid-template-columns:24px 18px minmax(0,1fr) 48px;grid-template-rows:auto auto auto}
+  .prow>.pmain{grid-column:3;grid-row:1}
+  .prow>.pproj{grid-column:4;grid-row:1}
+  .prow>.fwrap{grid-column:1 / -1;grid-row:2;justify-self:start;margin-top:2px}
+  .prow>.urow{grid-column:1 / -1;grid-row:3}
+  .prow.empty{grid-template-columns:24px minmax(0,1fr)}
+  .add-row{grid-template-columns:24px minmax(0,1fr) 48px 46px;grid-template-rows:auto auto auto}
+  .add-row>.pproj{grid-column:3;grid-row:1}
+  .add-row>.add-diff{grid-column:4;grid-row:1}
+  .add-row>.fwrap{grid-column:1 / -1;grid-row:2;justify-self:start;margin-top:2px}
+  .add-row>.urow{grid-column:1 / -1;grid-row:3}
+}
+/* The swap comparison lives in the narrower of the two card columns, and
+   on a phone in a card barely wider than that, so both of those cases get
+   the compact figures. Between them (700 to 899) the card runs the full
+   width of the page and can afford the roomy ones. */
+@media (max-width:699px), (min-width:900px) and (max-width:1199px){
+  :root{--sf-name:72px;--sf-week:38px;--sf-sum:40px}
+  .sform .sf-wk,.sform .sf-k{font-size:8px;margin-right:2px}
+  .sform .sf-v,.sform .sf-wv{font-size:9.5px}
+  .sform .sf-n{font-size:10px;padding-right:4px}
+  .sform .sf-tag{width:22px;min-width:22px}
+  .swap{padding:6px 4px}
+}
+
 @media (max-width:699px){
-  .wrap{padding:10px 10px 32px}
+  :root{--fs-lab:24px}
+  .prow{grid-template-columns:24px minmax(0,1fr) 48px}
+  .prow>.ava{display:none}
+  .prow>.pmain{grid-column:2;grid-row:1}
+  .prow>.pproj{grid-column:3;grid-row:1}
+  .wrap{padding:12px 10px 32px}
+  .card{padding:10px}
   .ptitle-desc{display:none}
   /* Four boxes still fit across a phone, but not four boxes with two
      footnotes each: the verdict stays, the count goes (it is on the page
      below anyway). */
-  .sfoot{font-size:8.5px}
+  .sfoot{font-size:10px}
   .sfoot .sn{display:none}
-  .prow{grid-template-columns:24px minmax(0,1fr) auto 40px;gap:6px}
-  .prow.empty{grid-template-columns:24px minmax(0,1fr)}
-  .add-row{grid-template-columns:24px minmax(0,1fr) 40px 40px;gap:6px}
   .flag-row{grid-template-columns:24px minmax(0,1fr) auto;gap:6px}
-  .ava{display:none}
-  .form{gap:6px}
-  .f{min-width:27px}
-  .fk{font-size:7.5px}
-  .fv{font-size:9.5px}
-  .pname{font-size:11px}
-  .pproj{font-size:13px}
-  .t-total{font-size:19px}
-  .sv{font-size:13px}
-  .sk{font-size:8px}
-  .sfoot{font-size:8.5px}
+  .pname{font-size:12.5px}
+  .pproj{font-size:14px}
+  .t-total{font-size:21px}
+  .sv{font-size:15px}
+  .sk{font-size:10px}
   .strip{gap:6px}
-  .sbox{padding:5px 6px}
-  .ptable .c-rk{width:30px;min-width:30px}
-  .ptable .c-player{left:30px;min-width:150px;max-width:150px}
+  .sbox{padding:5px 7px}
+  .fs-gp{min-width:24px}
+  .prow,.add-row{padding:3px 2px}
+  .prow>.fwrap,.add-row>.fwrap{margin-top:1px}
+  .uline{font-size:10px;line-height:1.25}
+  .ptable .c-rk{width:32px;min-width:32px}
+  .ptable .c-player{left:32px;min-width:158px;max-width:158px}
   input[type=search]{max-width:none}
-  .mproj{font-size:11px;min-width:28px}
-  .mname-line{font-size:10.5px}
+  .mrow{grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);gap:4px}
+  .mside{gap:5px;padding:2px}
+  .mproj{font-size:12px;min-width:28px}
+  .mname-line{font-size:11.5px}
+  .mform{font-size:9px}
+  .mform .msep{padding:0 1px}
 }
+/* Below the 390px this page is built for there is no room left to give:
+   the name on a swap line gives up almost all of it rather than let the
+   page scroll sideways. The headline right above still names him in full. */
+@media (max-width:359px){
+  :root{--sf-name:40px;--sf-week:36px;--sf-sum:38px}
+}
+
 @media (prefers-reduced-motion:no-preference){
   .prow[data-pid],.flag-row,.mside[data-pid],tbody tr{transition:background .1s ease}
 }
@@ -409,7 +549,7 @@ table.msummary col.num{width:64px}
   <header class="hdr" id="app-header">
     <h2 class="sr-only">Header</h2>
 
-    <!-- The page title sits on the graph-paper ground, not in a card: name,
+    <!-- The page title sits on the plain ground, not in a card: name,
          a one-line description, then the feed dot and Refresh at the right. -->
     <div class="titlerow">
       <div class="title-left">
@@ -1679,12 +1819,12 @@ if (typeof module !== "undefined") module.exports = {
   const n1 = v => !isNum(v) ? "?" : (Math.round(v * 10) / 10).toFixed(1);
   // Same, with an explicit + on non-negative values (for gains/deltas).
   const signed1 = v => !isNum(v) ? "?" : (v >= 0 ? "+" : "") + n1(v);
-  const numOr = (v, d) => isNum(v) ? v : d;
 
   // A middle dot stands for "we have no sample for this", everywhere. Never
-  // a 0 and never a "?": a zero would read as a real measurement.
+  // a 0 and never a "?": a zero would read as a real measurement. Wherever
+  // one is painted the cell also takes a "nil" class, so "no sample" is a
+  // shade lighter than a real figure rather than only a different glyph.
   const DOT = "·";
-  const MID = '<span class="mid">' + DOT + '</span>';
 
   const fmtPts = v => isNum(v) ? (Math.round(v * 10) / 10).toFixed(1) : DOT;
   const fmtSgn = v => isNum(v) ? (v >= 0 ? "+" : "") + fmtPts(v) : DOT;
@@ -1748,10 +1888,33 @@ if (typeof module !== "undefined") module.exports = {
     return out;
   }
 
-  /* ------------------------------------------------------------- form
-     AVG, L3 and SNAP, the three figures that say whether this week's
-     projection is backed by anything. L3 takes the only colour, and only
-     when the trend is worth a manager's attention. */
+  /* ------------------------------------------------------------- form strip
+     The decision row. Under (or, with room, beside) every player's name:
+     one column per fetched week, oldest left, then a divider and the season
+     summary. Points on one line, snap share on the next, so form and
+     workload are read together instead of hunted for.
+
+              W1     W2     W3     W4  |  AVG   L3
+       pts  18.2   24.1    9.7   22.0  | 18.5  18.6
+       snap  84%    81%    79%    88%  |  83%
+
+     Every strip on the page carries the same number of week columns: LOGW,
+     the longest log in the MODEL. A shorter log is padded on the left with
+     blank cells, so the columns line up down the roster and the eye lands
+     on the same figure in the same place on every row. A player with no
+     log at all still gets the frame, one placeholder column of dots. */
+
+  let LOGW = 1;
+
+  function computeLogW(m){
+    let w = 1;
+    const rows = (m && m.rows) || [];
+    for(const r of rows){
+      const n = Array.isArray(r.log) ? r.log.length : 0;
+      if(n > w) w = n;
+    }
+    return Math.min(w, 6);
+  }
 
   function trendCls(r){
     if(!isNum(r.trend)) return "";
@@ -1760,28 +1923,89 @@ if (typeof module !== "undefined") module.exports = {
     return "";
   }
 
-  function formBlock(r){
-    return '<div class="form">' +
-      `<span class="f"><span class="fk">AVG</span><span class="fv">${fmtPts(r.avg)}</span></span>` +
-      `<span class="f"><span class="fk">L3</span><span class="fv${trendCls(r)}">${fmtPts(r.l3)}</span></span>` +
-      `<span class="f"><span class="fk">SNAP</span><span class="fv">${fmtPct(r.snap)}</span></span>` +
-      '</div>';
+  const nilCls = v => isNum(v) ? "" : " nil";
+
+  // Which game in the log was his best, so it can carry a little weight.
+  // Only worth marking when there is more than one game to compare.
+  function bestGame(log){
+    if(log.length < 2) return -1;
+    let bi = -1, bv = -Infinity;
+    log.forEach((g, i) => { if(g && isNum(g.pts) && g.pts > bv){ bv = g.pts; bi = i; } });
+    return bi;
   }
 
-  // "2 gp" is the honest size of the sample the three figures above came
-  // from. Nobody with no games reads as a zero.
-  function gpText(r){
-    const g = isNum(r.gpNow) && r.gpNow > 0 ? String(Math.round(r.gpNow)) : DOT;
-    const thin = isNum(r.gpNow) && r.gpNow > 0 && r.gpNow < 3;
-    return thin ? `<span class="thin">${g} gp</span>` : `${g} gp`;
+  // "4 gp" is the honest size of the sample the AVG and L3 columns came
+  // from, and it sits at the strip's right edge on every row. Under three
+  // games it takes the attention colour: the figures are real, but there
+  // is not enough of them to lean on.
+  function gpCell(r){
+    const g = isNum(r.gpNow) && r.gpNow > 0 ? Math.round(r.gpNow) : 0;
+    return `<span class="fs-gp${g < 3 ? " thin" : ""}">${g} gp</span>`;
   }
 
-  // "WR - SEA · Slp 28.4 · Hid +1.8 · 2 gp", the hidden part only when there
-  // is a positive amount of it to show.
+  function formStripHTML(r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const log = all.length ? all.slice(-LOGW) : [null];
+    const pad = '<td class="fs-pad"></td>'.repeat(Math.max(0, LOGW - log.length));
+    const best = bestGame(log);
+    const wk = pad + log.map(g =>
+      `<td class="fs-w">W${g && g.w != null ? esc(g.w) : DOT}</td>`).join("");
+    const pts = pad + log.map((g, i) =>
+      `<td class="fs-v${g && isNum(g.pts) ? "" : " nil"}${i === best ? " best" : ""}">` +
+      `${g ? fmtPts(g.pts) : DOT}</td>`).join("");
+    const snp = pad + log.map(g =>
+      `<td class="fs-v fs-snap${g && isNum(g.snap) ? "" : " nil"}">${g ? fmtPct(g.snap) : DOT}</td>`).join("");
+    return '<div class="fwrap"><table class="fstrip">' +
+      `<tr class="fs-head"><td class="fs-k"></td>${wk}` +
+        '<td class="fs-h fs-div">AVG</td><td class="fs-h">L3</td></tr>' +
+      `<tr><td class="fs-k">pts</td>${pts}` +
+        `<td class="fs-v fs-div${nilCls(r.avg)}">${fmtPts(r.avg)}</td>` +
+        `<td class="fs-v${nilCls(r.l3)}${trendCls(r)}">${fmtPts(r.l3)}</td></tr>` +
+      `<tr><td class="fs-k">snap</td>${snp}` +
+        `<td class="fs-v fs-snap fs-div${nilCls(r.snap)}">${fmtPct(r.snap)}</td>` +
+        '<td class="fs-none"></td></tr>' +
+      `</table>${gpCell(r)}</div>`;
+  }
+
+  /* ------------------------------------------------------------- usage
+     The role underneath the points. A touchdown off one target and a
+     bell-cow's afternoon can land on the same score; carries, targets and
+     tackles cannot be faked by one bounce. Season per game first, then the
+     same keys read off this week's projection a shade fainter, so the role
+     and the forecast sit one above the other. */
+
+  // One decimal, with a bare ".0" dropped: "14.2 car", "92 ru yd", "16 car".
+  const fmtUse = v => {
+    if(!isNum(v)) return DOT;
+    const s = (Math.round(v * 10) / 10).toFixed(1);
+    return s.slice(-2) === ".0" ? s.slice(0, -2) : s;
+  };
+
+  function useItems(list){
+    return list.map(it => {
+      const v = it ? it.v : null;
+      return `<span class="u"><span class="uv${nilCls(v)}">${fmtUse(v)}</span>` +
+        `<span class="uk">${esc(it && it.label != null ? it.label : "")}</span></span>`;
+    }).join(`<span class="usep">${DOT}</span>`);
+  }
+
+  function usageHTML(r){
+    const u = Array.isArray(r.usage) && r.usage.length ? r.usage : null;
+    const p = Array.isArray(r.usageProj) && r.usageProj.length ? r.usageProj : null;
+    if(!u && !p) return "";
+    let out = "";
+    if(u) out += `<div class="uline">${useItems(u)}<span class="ug">/g</span></div>`;
+    if(p) out += `<div class="uline uproj"><span class="upk">proj</span>${useItems(p)}</div>`;
+    return `<div class="urow">${out}</div>`;
+  }
+
+  // "WR - SEA · Slp 28.4 · Hid +1.8", the hidden part only when there is a
+  // positive amount of it to show. The games-played count used to live here
+  // and now sits on the strip, beside the figures it qualifies.
   function metaLine(r){
     let s = `${esc(r.p)} - ${esc(r.t)} ${DOT} Slp ${n1(r.sleep)}`;
     if(isNum(r.hid) && r.hid > 0) s += ` ${DOT} Hid ${signed1(r.hid)}`;
-    return s + ` ${DOT} ` + gpText(r);
+    return s;
   }
 
   /* ------------------------------------------------------------- filtering
@@ -1910,7 +2134,7 @@ if (typeof module !== "undefined") module.exports = {
       `<div class="pmain">` +
         `<div class="pname">${esc(r.n)}${chips(r, slot.add)}</div>` +
         `<div class="pmeta">${metaLine(r)}</div>` +
-      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
+      `</div>${formStripHTML(r)}<div class="pproj">${n1(r.o)}</div>${usageHTML(r)}</div>`;
   }
 
   function benchRowHTML(r){
@@ -1918,25 +2142,59 @@ if (typeof module !== "undefined") module.exports = {
       `<div class="pmain">` +
         `<div class="pname">${esc(r.n)}${chips(r, false)}</div>` +
         `<div class="pmeta">${metaLine(r)}</div>` +
-      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
+      `</div>${formStripHTML(r)}<div class="pproj">${n1(r.o)}</div>${usageHTML(r)}</div>`;
   }
 
-  // "START name over other @ SLOT   +23.6", or a plain SIT when nobody comes
-  // in for his slot.
+  /* ------------------------------------------------------------- start/sit
+     The headline says what to do; the two lines under it say why. One
+     compact form line per player, the same columns in the same places, so
+     the gap between them is the whole argument and can be read at a
+     glance rather than reconstructed. */
+
+  const SWAPW = 3;   // the last three games: the window L3 itself covers
+
+  function swapFormHTML(tag, r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const log = all.length ? all.slice(-SWAPW) : [null];
+    const cols = Math.max(1, Math.min(SWAPW, LOGW));
+    const pad = '<td class="sf-pad"></td>'.repeat(Math.max(0, cols - log.length));
+    const cells = pad + log.map(g =>
+      `<td class="sf-w"><span class="sf-wk">W${g && g.w != null ? esc(g.w) : DOT}</span>` +
+      `<span class="sf-wv${g && isNum(g.pts) ? "" : " nil"}">${g ? fmtPts(g.pts) : DOT}</span></td>`).join("");
+    return `<tr class="sf-${esc(tag.toLowerCase())}" data-pid="${esc(r.id)}">` +
+      `<td class="sf-tag">${esc(tag)}</td>` +
+      `<td class="sf-n"><span class="sf-nm">${esc(r.n)}</span></td>${cells}` +
+      `<td class="sf-s sf-div"><span class="sf-k">avg</span>` +
+        `<span class="sf-v${nilCls(r.avg)}">${fmtPts(r.avg)}</span></td>` +
+      `<td class="sf-s"><span class="sf-k">l3</span>` +
+        `<span class="sf-v${nilCls(r.l3)}${trendCls(r)}">${fmtPts(r.l3)}</span></td>` +
+      `<td class="sf-s"><span class="sf-k">snap</span>` +
+        `<span class="sf-v${nilCls(r.snap)}">${fmtPct(r.snap)}</span></td></tr>`;
+  }
+
+  // "IN name over other @ SLOT   +23.6", or a plain SIT when nobody comes
+  // in for his slot, with the form of everyone named underneath it.
   function swapRowHTML(sw){
-    if(!sw.in)
-      return `<div class="swap-row is-sit"><span class="chip c-sit">SIT</span>` +
+    let head, form;
+    if(!sw.in){
+      head = '<div class="swap-row"><span class="chip c-sit">SIT</span>' +
         `<span class="swap-txt"><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>` +
         `<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span></span>` +
         `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
-    const outHtml = sw.out
-      ? `<span class="swap-op"> over </span><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>`
-      : '<span class="swap-op"> into an empty slot</span>';
-    const addChip = sw.add ? '<span class="chip c-add">ADD</span>' : "";
-    return `<div class="swap-row is-in"><span class="chip c-in">IN</span>` +
-      `<span class="swap-txt"><span class="swap-in" data-pid="${esc(sw.in.id)}">${esc(sw.in.n)}</span>` +
-      `${outHtml}<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span>${addChip}</span>` +
-      `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
+      form = swapFormHTML("OUT", sw.out);
+    } else {
+      const outHtml = sw.out
+        ? `<span class="swap-op"> over </span><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>`
+        : '<span class="swap-op"> into an empty slot</span>';
+      const addChip = sw.add ? '<span class="chip c-add">ADD</span>' : "";
+      head = '<div class="swap-row"><span class="chip c-in">IN</span>' +
+        `<span class="swap-txt"><span class="swap-in" data-pid="${esc(sw.in.id)}">${esc(sw.in.n)}</span>` +
+        `${outHtml}<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span>${addChip}</span>` +
+        `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
+      form = swapFormHTML("IN", sw.in) + (sw.out ? swapFormHTML("OUT", sw.out) : "");
+    }
+    return `<div class="swap ${sw.in ? "is-in" : "is-sit"}">${head}` +
+      `<table class="sform">${form}</table></div>`;
   }
 
   function flaggedRowHTML(r, starting){
@@ -2085,8 +2343,8 @@ if (typeof module !== "undefined") module.exports = {
       : `<span class="add-diff neg">${DOT}</span>`;
     return `<div class="add-row">${pos(f.p)}` +
       `<div class="pmain"><div class="add-name" data-pid="${esc(f.id)}">${esc(f.n)}</div>` +
-      `<div class="add-vs">${vs}</div></div>` +
-      `<div class="pproj">${n1(f.o)}</div>${diffHtml}</div>`;
+      `<div class="add-vs">${vs}</div></div>${formStripHTML(f)}` +
+      `<div class="pproj">${n1(f.o)}</div>${diffHtml}${usageHTML(f)}</div>`;
   }
 
   function renderTeamAdds(m){
@@ -2159,13 +2417,25 @@ if (typeof module !== "undefined") module.exports = {
       `<span class="mt-val">${esc(theirTxt)}</span><span class="mt-name">${esc(opp.name)}</span>`;
   }
 
+  // The compact variant of the form strip: his last three scores and the
+  // snap share in his most recent game, one line, on both sides of every
+  // matchup row.
+  function matchupFormHTML(r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const last = all.slice(-3);
+    const parts = (last.length ? last.map(g => fmtPts(g && g.pts)) : [DOT]).concat([fmtPct(r.snapL)]);
+    return '<div class="mform">' +
+      parts.map(v => `<span class="mfv${v === DOT ? " nil" : ""}">${v}</span>`)
+        .join(`<span class="msep">${DOT}</span>`) + "</div>";
+  }
+
   function matchupSideHTML(side, entry, otherVal){
     const r = entry && entry.r;
     if(!r) return `<div class="mside ${side} empty-side">empty</div>`;
     const hi = r.o > otherVal ? " hi" : "";
     const addChip = entry.add ? '<span class="chip c-add">ADD</span>' : "";
     const text = `<div class="mtext"><div class="mname-line">${esc(r.n)}${chips(r, false)}${addChip}</div>` +
-      `<div class="msub">${esc(r.p)} - ${esc(r.t)} ${DOT} L3 ${fmtPts(r.l3)}</div></div>`;
+      `<div class="msub">${esc(r.p)} - ${esc(r.t)}</div>${matchupFormHTML(r)}</div>`;
     const proj = `<div class="mproj">${n1(r.o)}</div>`;
     const inner = side === "mine" ? (text + proj) : (proj + text);
     return `<div class="mside ${side}${hi}" data-pid="${esc(r.id)}">${inner}</div>`;
@@ -2567,7 +2837,9 @@ if (typeof module !== "undefined") module.exports = {
         log.map(g => `<tr><td class="l">Week ${esc(g && g.w != null ? g.w : "?")}</td>` +
           `<td>${fmtPts(g && g.pts)}</td><td>${fmtPct(g && g.snap)}</td></tr>`).join("") + "</table>"
       : `<div class="sec-note">No game log for him yet this season.</div>`;
-    return `<div class="card-grp">Form this season</div>${strip}${logTable}`;
+    const use = usageHTML(r);
+    const useBlock = use ? `<div class="card-grp">Usage</div>${use}` : "";
+    return `<div class="card-grp">Form this season</div>${strip}${logTable}${useBlock}`;
   }
 
   function openCard(r){
@@ -2770,6 +3042,9 @@ if (typeof module !== "undefined") module.exports = {
   function render(model){
     MODEL = model;
     WEEK = model.week;
+    // One page-wide width for every form strip, settled before anything is
+    // painted so the columns line up across every list on every view.
+    LOGW = computeLogW(model);
 
     ROWS_BY_ID = new Map();
     (model.rows || []).forEach(r => ROWS_BY_ID.set(String(r.id), r));

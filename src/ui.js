@@ -16,12 +16,12 @@
   const n1 = v => !isNum(v) ? "?" : (Math.round(v * 10) / 10).toFixed(1);
   // Same, with an explicit + on non-negative values (for gains/deltas).
   const signed1 = v => !isNum(v) ? "?" : (v >= 0 ? "+" : "") + n1(v);
-  const numOr = (v, d) => isNum(v) ? v : d;
 
   // A middle dot stands for "we have no sample for this", everywhere. Never
-  // a 0 and never a "?": a zero would read as a real measurement.
+  // a 0 and never a "?": a zero would read as a real measurement. Wherever
+  // one is painted the cell also takes a "nil" class, so "no sample" is a
+  // shade lighter than a real figure rather than only a different glyph.
   const DOT = "·";
-  const MID = '<span class="mid">' + DOT + '</span>';
 
   const fmtPts = v => isNum(v) ? (Math.round(v * 10) / 10).toFixed(1) : DOT;
   const fmtSgn = v => isNum(v) ? (v >= 0 ? "+" : "") + fmtPts(v) : DOT;
@@ -85,10 +85,33 @@
     return out;
   }
 
-  /* ------------------------------------------------------------- form
-     AVG, L3 and SNAP, the three figures that say whether this week's
-     projection is backed by anything. L3 takes the only colour, and only
-     when the trend is worth a manager's attention. */
+  /* ------------------------------------------------------------- form strip
+     The decision row. Under (or, with room, beside) every player's name:
+     one column per fetched week, oldest left, then a divider and the season
+     summary. Points on one line, snap share on the next, so form and
+     workload are read together instead of hunted for.
+
+              W1     W2     W3     W4  |  AVG   L3
+       pts  18.2   24.1    9.7   22.0  | 18.5  18.6
+       snap  84%    81%    79%    88%  |  83%
+
+     Every strip on the page carries the same number of week columns: LOGW,
+     the longest log in the MODEL. A shorter log is padded on the left with
+     blank cells, so the columns line up down the roster and the eye lands
+     on the same figure in the same place on every row. A player with no
+     log at all still gets the frame, one placeholder column of dots. */
+
+  let LOGW = 1;
+
+  function computeLogW(m){
+    let w = 1;
+    const rows = (m && m.rows) || [];
+    for(const r of rows){
+      const n = Array.isArray(r.log) ? r.log.length : 0;
+      if(n > w) w = n;
+    }
+    return Math.min(w, 6);
+  }
 
   function trendCls(r){
     if(!isNum(r.trend)) return "";
@@ -97,28 +120,89 @@
     return "";
   }
 
-  function formBlock(r){
-    return '<div class="form">' +
-      `<span class="f"><span class="fk">AVG</span><span class="fv">${fmtPts(r.avg)}</span></span>` +
-      `<span class="f"><span class="fk">L3</span><span class="fv${trendCls(r)}">${fmtPts(r.l3)}</span></span>` +
-      `<span class="f"><span class="fk">SNAP</span><span class="fv">${fmtPct(r.snap)}</span></span>` +
-      '</div>';
+  const nilCls = v => isNum(v) ? "" : " nil";
+
+  // Which game in the log was his best, so it can carry a little weight.
+  // Only worth marking when there is more than one game to compare.
+  function bestGame(log){
+    if(log.length < 2) return -1;
+    let bi = -1, bv = -Infinity;
+    log.forEach((g, i) => { if(g && isNum(g.pts) && g.pts > bv){ bv = g.pts; bi = i; } });
+    return bi;
   }
 
-  // "2 gp" is the honest size of the sample the three figures above came
-  // from. Nobody with no games reads as a zero.
-  function gpText(r){
-    const g = isNum(r.gpNow) && r.gpNow > 0 ? String(Math.round(r.gpNow)) : DOT;
-    const thin = isNum(r.gpNow) && r.gpNow > 0 && r.gpNow < 3;
-    return thin ? `<span class="thin">${g} gp</span>` : `${g} gp`;
+  // "4 gp" is the honest size of the sample the AVG and L3 columns came
+  // from, and it sits at the strip's right edge on every row. Under three
+  // games it takes the attention colour: the figures are real, but there
+  // is not enough of them to lean on.
+  function gpCell(r){
+    const g = isNum(r.gpNow) && r.gpNow > 0 ? Math.round(r.gpNow) : 0;
+    return `<span class="fs-gp${g < 3 ? " thin" : ""}">${g} gp</span>`;
   }
 
-  // "WR - SEA · Slp 28.4 · Hid +1.8 · 2 gp", the hidden part only when there
-  // is a positive amount of it to show.
+  function formStripHTML(r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const log = all.length ? all.slice(-LOGW) : [null];
+    const pad = '<td class="fs-pad"></td>'.repeat(Math.max(0, LOGW - log.length));
+    const best = bestGame(log);
+    const wk = pad + log.map(g =>
+      `<td class="fs-w">W${g && g.w != null ? esc(g.w) : DOT}</td>`).join("");
+    const pts = pad + log.map((g, i) =>
+      `<td class="fs-v${g && isNum(g.pts) ? "" : " nil"}${i === best ? " best" : ""}">` +
+      `${g ? fmtPts(g.pts) : DOT}</td>`).join("");
+    const snp = pad + log.map(g =>
+      `<td class="fs-v fs-snap${g && isNum(g.snap) ? "" : " nil"}">${g ? fmtPct(g.snap) : DOT}</td>`).join("");
+    return '<div class="fwrap"><table class="fstrip">' +
+      `<tr class="fs-head"><td class="fs-k"></td>${wk}` +
+        '<td class="fs-h fs-div">AVG</td><td class="fs-h">L3</td></tr>' +
+      `<tr><td class="fs-k">pts</td>${pts}` +
+        `<td class="fs-v fs-div${nilCls(r.avg)}">${fmtPts(r.avg)}</td>` +
+        `<td class="fs-v${nilCls(r.l3)}${trendCls(r)}">${fmtPts(r.l3)}</td></tr>` +
+      `<tr><td class="fs-k">snap</td>${snp}` +
+        `<td class="fs-v fs-snap fs-div${nilCls(r.snap)}">${fmtPct(r.snap)}</td>` +
+        '<td class="fs-none"></td></tr>' +
+      `</table>${gpCell(r)}</div>`;
+  }
+
+  /* ------------------------------------------------------------- usage
+     The role underneath the points. A touchdown off one target and a
+     bell-cow's afternoon can land on the same score; carries, targets and
+     tackles cannot be faked by one bounce. Season per game first, then the
+     same keys read off this week's projection a shade fainter, so the role
+     and the forecast sit one above the other. */
+
+  // One decimal, with a bare ".0" dropped: "14.2 car", "92 ru yd", "16 car".
+  const fmtUse = v => {
+    if(!isNum(v)) return DOT;
+    const s = (Math.round(v * 10) / 10).toFixed(1);
+    return s.slice(-2) === ".0" ? s.slice(0, -2) : s;
+  };
+
+  function useItems(list){
+    return list.map(it => {
+      const v = it ? it.v : null;
+      return `<span class="u"><span class="uv${nilCls(v)}">${fmtUse(v)}</span>` +
+        `<span class="uk">${esc(it && it.label != null ? it.label : "")}</span></span>`;
+    }).join(`<span class="usep">${DOT}</span>`);
+  }
+
+  function usageHTML(r){
+    const u = Array.isArray(r.usage) && r.usage.length ? r.usage : null;
+    const p = Array.isArray(r.usageProj) && r.usageProj.length ? r.usageProj : null;
+    if(!u && !p) return "";
+    let out = "";
+    if(u) out += `<div class="uline">${useItems(u)}<span class="ug">/g</span></div>`;
+    if(p) out += `<div class="uline uproj"><span class="upk">proj</span>${useItems(p)}</div>`;
+    return `<div class="urow">${out}</div>`;
+  }
+
+  // "WR - SEA · Slp 28.4 · Hid +1.8", the hidden part only when there is a
+  // positive amount of it to show. The games-played count used to live here
+  // and now sits on the strip, beside the figures it qualifies.
   function metaLine(r){
     let s = `${esc(r.p)} - ${esc(r.t)} ${DOT} Slp ${n1(r.sleep)}`;
     if(isNum(r.hid) && r.hid > 0) s += ` ${DOT} Hid ${signed1(r.hid)}`;
-    return s + ` ${DOT} ` + gpText(r);
+    return s;
   }
 
   /* ------------------------------------------------------------- filtering
@@ -247,7 +331,7 @@
       `<div class="pmain">` +
         `<div class="pname">${esc(r.n)}${chips(r, slot.add)}</div>` +
         `<div class="pmeta">${metaLine(r)}</div>` +
-      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
+      `</div>${formStripHTML(r)}<div class="pproj">${n1(r.o)}</div>${usageHTML(r)}</div>`;
   }
 
   function benchRowHTML(r){
@@ -255,25 +339,59 @@
       `<div class="pmain">` +
         `<div class="pname">${esc(r.n)}${chips(r, false)}</div>` +
         `<div class="pmeta">${metaLine(r)}</div>` +
-      `</div>${formBlock(r)}<div class="pproj">${n1(r.o)}</div></div>`;
+      `</div>${formStripHTML(r)}<div class="pproj">${n1(r.o)}</div>${usageHTML(r)}</div>`;
   }
 
-  // "START name over other @ SLOT   +23.6", or a plain SIT when nobody comes
-  // in for his slot.
+  /* ------------------------------------------------------------- start/sit
+     The headline says what to do; the two lines under it say why. One
+     compact form line per player, the same columns in the same places, so
+     the gap between them is the whole argument and can be read at a
+     glance rather than reconstructed. */
+
+  const SWAPW = 3;   // the last three games: the window L3 itself covers
+
+  function swapFormHTML(tag, r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const log = all.length ? all.slice(-SWAPW) : [null];
+    const cols = Math.max(1, Math.min(SWAPW, LOGW));
+    const pad = '<td class="sf-pad"></td>'.repeat(Math.max(0, cols - log.length));
+    const cells = pad + log.map(g =>
+      `<td class="sf-w"><span class="sf-wk">W${g && g.w != null ? esc(g.w) : DOT}</span>` +
+      `<span class="sf-wv${g && isNum(g.pts) ? "" : " nil"}">${g ? fmtPts(g.pts) : DOT}</span></td>`).join("");
+    return `<tr class="sf-${esc(tag.toLowerCase())}" data-pid="${esc(r.id)}">` +
+      `<td class="sf-tag">${esc(tag)}</td>` +
+      `<td class="sf-n"><span class="sf-nm">${esc(r.n)}</span></td>${cells}` +
+      `<td class="sf-s sf-div"><span class="sf-k">avg</span>` +
+        `<span class="sf-v${nilCls(r.avg)}">${fmtPts(r.avg)}</span></td>` +
+      `<td class="sf-s"><span class="sf-k">l3</span>` +
+        `<span class="sf-v${nilCls(r.l3)}${trendCls(r)}">${fmtPts(r.l3)}</span></td>` +
+      `<td class="sf-s"><span class="sf-k">snap</span>` +
+        `<span class="sf-v${nilCls(r.snap)}">${fmtPct(r.snap)}</span></td></tr>`;
+  }
+
+  // "IN name over other @ SLOT   +23.6", or a plain SIT when nobody comes
+  // in for his slot, with the form of everyone named underneath it.
   function swapRowHTML(sw){
-    if(!sw.in)
-      return `<div class="swap-row is-sit"><span class="chip c-sit">SIT</span>` +
+    let head, form;
+    if(!sw.in){
+      head = '<div class="swap-row"><span class="chip c-sit">SIT</span>' +
         `<span class="swap-txt"><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>` +
         `<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span></span>` +
         `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
-    const outHtml = sw.out
-      ? `<span class="swap-op"> over </span><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>`
-      : '<span class="swap-op"> into an empty slot</span>';
-    const addChip = sw.add ? '<span class="chip c-add">ADD</span>' : "";
-    return `<div class="swap-row is-in"><span class="chip c-in">IN</span>` +
-      `<span class="swap-txt"><span class="swap-in" data-pid="${esc(sw.in.id)}">${esc(sw.in.n)}</span>` +
-      `${outHtml}<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span>${addChip}</span>` +
-      `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
+      form = swapFormHTML("OUT", sw.out);
+    } else {
+      const outHtml = sw.out
+        ? `<span class="swap-op"> over </span><span class="swap-out" data-pid="${esc(sw.out.id)}">${esc(sw.out.n)}</span>`
+        : '<span class="swap-op"> into an empty slot</span>';
+      const addChip = sw.add ? '<span class="chip c-add">ADD</span>' : "";
+      head = '<div class="swap-row"><span class="chip c-in">IN</span>' +
+        `<span class="swap-txt"><span class="swap-in" data-pid="${esc(sw.in.id)}">${esc(sw.in.n)}</span>` +
+        `${outHtml}<span class="swap-op"> @ ${esc(SLOT_LABEL[sw.slot] || sw.slot)}</span>${addChip}</span>` +
+        `<span class="swap-gain">${signed1(sw.gain)}</span></div>`;
+      form = swapFormHTML("IN", sw.in) + (sw.out ? swapFormHTML("OUT", sw.out) : "");
+    }
+    return `<div class="swap ${sw.in ? "is-in" : "is-sit"}">${head}` +
+      `<table class="sform">${form}</table></div>`;
   }
 
   function flaggedRowHTML(r, starting){
@@ -422,8 +540,8 @@
       : `<span class="add-diff neg">${DOT}</span>`;
     return `<div class="add-row">${pos(f.p)}` +
       `<div class="pmain"><div class="add-name" data-pid="${esc(f.id)}">${esc(f.n)}</div>` +
-      `<div class="add-vs">${vs}</div></div>` +
-      `<div class="pproj">${n1(f.o)}</div>${diffHtml}</div>`;
+      `<div class="add-vs">${vs}</div></div>${formStripHTML(f)}` +
+      `<div class="pproj">${n1(f.o)}</div>${diffHtml}${usageHTML(f)}</div>`;
   }
 
   function renderTeamAdds(m){
@@ -496,13 +614,25 @@
       `<span class="mt-val">${esc(theirTxt)}</span><span class="mt-name">${esc(opp.name)}</span>`;
   }
 
+  // The compact variant of the form strip: his last three scores and the
+  // snap share in his most recent game, one line, on both sides of every
+  // matchup row.
+  function matchupFormHTML(r){
+    const all = Array.isArray(r.log) ? r.log : [];
+    const last = all.slice(-3);
+    const parts = (last.length ? last.map(g => fmtPts(g && g.pts)) : [DOT]).concat([fmtPct(r.snapL)]);
+    return '<div class="mform">' +
+      parts.map(v => `<span class="mfv${v === DOT ? " nil" : ""}">${v}</span>`)
+        .join(`<span class="msep">${DOT}</span>`) + "</div>";
+  }
+
   function matchupSideHTML(side, entry, otherVal){
     const r = entry && entry.r;
     if(!r) return `<div class="mside ${side} empty-side">empty</div>`;
     const hi = r.o > otherVal ? " hi" : "";
     const addChip = entry.add ? '<span class="chip c-add">ADD</span>' : "";
     const text = `<div class="mtext"><div class="mname-line">${esc(r.n)}${chips(r, false)}${addChip}</div>` +
-      `<div class="msub">${esc(r.p)} - ${esc(r.t)} ${DOT} L3 ${fmtPts(r.l3)}</div></div>`;
+      `<div class="msub">${esc(r.p)} - ${esc(r.t)}</div>${matchupFormHTML(r)}</div>`;
     const proj = `<div class="mproj">${n1(r.o)}</div>`;
     const inner = side === "mine" ? (text + proj) : (proj + text);
     return `<div class="mside ${side}${hi}" data-pid="${esc(r.id)}">${inner}</div>`;
@@ -904,7 +1034,9 @@
         log.map(g => `<tr><td class="l">Week ${esc(g && g.w != null ? g.w : "?")}</td>` +
           `<td>${fmtPts(g && g.pts)}</td><td>${fmtPct(g && g.snap)}</td></tr>`).join("") + "</table>"
       : `<div class="sec-note">No game log for him yet this season.</div>`;
-    return `<div class="card-grp">Form this season</div>${strip}${logTable}`;
+    const use = usageHTML(r);
+    const useBlock = use ? `<div class="card-grp">Usage</div>${use}` : "";
+    return `<div class="card-grp">Form this season</div>${strip}${logTable}${useBlock}`;
   }
 
   function openCard(r){
@@ -1107,6 +1239,9 @@
   function render(model){
     MODEL = model;
     WEEK = model.week;
+    // One page-wide width for every form strip, settled before anything is
+    // painted so the columns line up across every list on every view.
+    LOGW = computeLogW(model);
 
     ROWS_BY_ID = new Map();
     (model.rows || []).forEach(r => ROWS_BY_ID.set(String(r.id), r));
